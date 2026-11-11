@@ -1,0 +1,9 @@
+.DS_Store
+.sudo_as_admin_successful
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+!.env.example

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voxel Bellandur — a data-derived diorama of Bellandur, Bengaluru</title>
+<style>
+  :root{
+    --ink:#f4efe4;
+    --panel: rgba(26,22,18,0.60);
+    --panel2: rgba(38,32,26,0.72);
+    --edge: rgba(255,214,170,0.20);
+    --accent:#ffb26b;
+    --teal:#7fd0c0;
+    --gold:#ffd479;
+    --muted:#b9ab99;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#141110;color:var(--ink);
+    font-family: ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  canvas{display:block;}
+  #app{position:fixed;inset:0;}
+
+  .hud{position:fixed;z-index:10;pointer-events:none;user-select:none;}
+  .panel{background:var(--panel);border:1px solid var(--edge);border-radius:12px;
+    backdrop-filter: blur(10px) saturate(1.15);-webkit-backdrop-filter: blur(10px) saturate(1.15);
+    box-shadow: 0 12px 34px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);}
+
+  /* ---------- title ---------- */
+  #titlebar{top:18px;left:18px;padding:13px 18px 12px;max-width:352px;}
+  #titlebar h1{margin:0;font-size:15.5px;letter-spacing:3.4px;font-weight:700;text-transform:uppercase;
+    background:linear-gradient(94deg,#ffe6c2 0%,#ffb26b 46%,#7fd0c0 100%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  #titlebar .kn{margin:3px 0 0;font-size:12.5px;letter-spacing:1px;color:#d9c9b2;}
+  #titlebar p{margin:5px 0 0;font-size:10px;letter-spacing:1.35px;color:#a2948a;text-transform:uppercase;}
+  #titlebar .rule{height:1px;margin:9px 0 8px;background:linear-gradient(90deg,var(--accent),transparent);opacity:.5;}
+  #titlebar .meta{display:flex;flex-wrap:wrap;gap:6px 15px;font-size:9.5px;letter-spacing:.7px;
+    color:#9c8f84;font-variant-numeric:tabular-nums;}
+  #titlebar .meta b{color:#f0e6d8;font-weight:600;}
+
+  #stats{top:18px;right:18px;padding:9px 13px;font-size:10px;letter-spacing:1px;color:#b0a294;
+    font-variant-numeric:tabular-nums;display:flex;gap:13px;align-items:center;}
+  #stats b{color:#f4ece0;font-weight:600;}
+  #fps{color:var(--teal);font-weight:700;}
+
+  /* ---------- toolbars ---------- */
+  #toolbar{right:18px;top:62px;display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;
+    pointer-events:auto;max-width:430px;}
+  .btn{font-family:inherit;font-size:10px;letter-spacing:1.25px;text-transform:uppercase;font-weight:600;
+    color:#d8c8b6;background:var(--panel);border:1px solid var(--edge);border-radius:9px;
+    padding:8px 11px;cursor:pointer;backdrop-filter:blur(10px);transition:.16s;white-space:nowrap;}
+  .btn:hover{color:#fff;border-color:rgba(255,178,107,.6);background:rgba(68,48,32,.8);}
+  .btn.on{color:#2a1a0c;background:linear-gradient(180deg,#ffd0a0,#ffb26b);border-color:#ffcf9e;box-shadow:0 0 16px rgba(255,178,107,.35);}
+  .btn.sep{opacity:.5;pointer-events:none;padding:8px 4px;border:none;background:none;box-shadow:none;}
+
+  #presets{right:18px;top:104px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;
+    pointer-events:auto;max-width:430px;}
+  .pbtn{font-family:inherit;font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;font-weight:600;
+    color:#cbbaa6;background:var(--panel2);border:1px solid var(--edge);border-radius:8px;
+    padding:7px 10px;cursor:pointer;backdrop-filter:blur(10px);transition:.16s;}
+  .pbtn:hover{color:#fff;border-color:rgba(127,208,192,.6);}
+  .pbtn.on{color:#12211e;background:linear-gradient(180deg,#a9e6da,#7fd0c0);border-color:#9fe0d4;}
+
+  /* ---------- help ---------- */
+  #help{left:18px;bottom:18px;padding:12px 15px;font-size:10px;letter-spacing:.5px;color:#b3a596;
+    line-height:1.8;max-width:352px;}
+  #help h2{margin:0 0 7px;font-size:9.5px;letter-spacing:2.2px;text-transform:uppercase;color:var(--accent);font-weight:700;}
+  #help .k{display:inline-block;min-width:18px;text-align:center;padding:1px 5px;margin-right:3px;
+    border:1px solid rgba(255,214,170,.3);border-radius:4px;background:rgba(255,255,255,.05);
+    color:#f2e8da;font-size:9px;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  #help .row{display:flex;gap:8px;align-items:baseline;}
+  #help .row span:last-child{opacity:.92;}
+  #help .hint{margin-top:8px;padding-top:7px;border-top:1px solid rgba(255,214,170,.14);
+    font-size:9px;letter-spacing:.9px;color:#8d8175;text-transform:uppercase;line-height:1.9;}
+
+  /* ---------- north + scale ---------- */
+  #north{right:22px;bottom:22px;width:66px;height:66px;}
+  #north svg{display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,.5));}
+  #north .needle{transform-origin:32px 32px;transition:transform .08s linear;}
+  #scale{left:50%;transform:translateX(-50%);bottom:22px;padding:6px 12px 7px;font-size:9px;
+    letter-spacing:1.4px;text-transform:uppercase;color:#c6b7a6;display:flex;flex-direction:column;
+    align-items:center;gap:4px;}
+  #scale .bar{height:4px;border-left:1px solid #d8c8b6;border-right:1px solid #d8c8b6;position:relative;}
+  #scale .bar i{position:absolute;inset:0;border-bottom:1px solid #d8c8b6;}
+  #scale b{color:#f2e8da;font-weight:600;}
+
+  #modeTag{left:50%;transform:translateX(-50%);bottom:74px;padding:6px 15px;font-size:9.5px;
+    letter-spacing:2.2px;text-transform:uppercase;color:#e8dcc9;transition:opacity .4s;opacity:0;}
+  #modeTag.show{opacity:1;}
+  #modeTag b{color:var(--accent);}
+
+  /* ---------- labels ---------- */
+  #labels{position:fixed;inset:0;z-index:8;pointer-events:none;overflow:hidden;}
+  .lbl{position:absolute;transform:translate(-50%,-100%);white-space:nowrap;text-align:center;
+    font-size:10px;letter-spacing:.7px;color:#fff7ea;text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.55);
+    transition:opacity .25s;}
+  .lbl .dot{display:block;width:4px;height:4px;margin:0 auto 3px;border-radius:50%;
+    background:var(--accent);box-shadow:0 0 6px rgba(255,178,107,.9);}
+  .lbl .kn2{display:block;font-size:9px;color:#e6d6bf;opacity:.92;}
+  .lbl.big{font-size:12px;letter-spacing:1.6px;text-transform:uppercase;color:#ffeccd;}
+  .lbl.water{color:#cfe9ea;font-style:italic;font-size:11.5px;letter-spacing:1.2px;}
+  .lbl.water .kn2{font-style:normal;}
+
+  /* ---------- loader ---------- */
+  #loader{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:18px;background:radial-gradient(circle at 50% 44%,#3a2a1e 0%,#141110 70%);
+    transition:opacity .9s ease;font-size:10.5px;letter-spacing:3px;text-transform:uppercase;color:#a8968a;}
+  #loader.done{opacity:0;pointer-events:none;}
+  #loader .gl{width:64px;height:64px;position:relative;}
+  #loader .gl i{position:absolute;background:var(--accent);border-radius:2px;opacity:.9;}
+  #loader .gl i:nth-child(1){left:0;top:26px;width:64px;height:12px;background:#ffb26b;}
+  #loader .gl i:nth-child(2){left:0;top:6px;width:40px;height:14px;background:#7fd0c0;}
+  #loader .gl i:nth-child(3){left:44px;top:6px;width:20px;height:26px;background:#ffe6c2;}
+  #loader .gl i:nth-child(4){left:12px;top:44px;width:34px;height:14px;background:#c8b8a0;}
+  #loader .gl{animation:bob 2.4s ease-in-out infinite;}
+  @keyframes bob{0%,100%{transform:translateY(-3px)}50%{transform:translateY(3px)}}
+  #loader .bar{width:250px;height:2px;background:rgba(255,178,107,.15);overflow:hidden;border-radius:2px;}
+  #loader .bar i{display:block;height:100%;width:35%;background:linear-gradient(90deg,transparent,#ffb26b,transparent);
+    animation:sweep 1.15s ease-in-out infinite;}
+  @keyframes sweep{0%{transform:translateX(-100%)}100%{transform:translateX(330%)}}
+  #loader .name{font-size:17px;letter-spacing:7px;font-weight:700;text-transform:uppercase;
+    background:linear-gradient(94deg,#ffe6c2,#ffb26b,#7fd0c0);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  #loader .kn{font-size:13px;letter-spacing:1.5px;color:#c9b6a0;}
+  #loader .tip{font-size:9px;letter-spacing:1.7px;color:#6f6259;}
+
+  body.fly #crosshair{opacity:.5;}
+  #crosshair{position:fixed;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;z-index:9;
+    opacity:0;transition:opacity .3s;pointer-events:none;}
+  #crosshair:before,#crosshair:after{content:"";position:absolute;background:rgba(255,238,220,.8);}
+  #crosshair:before{left:7px;top:0;width:2px;height:16px;}
+  #crosshair:after{top:7px;left:0;height:2px;width:16px;}
+  body.nokn .kn,body.nokn .kn2{display:none;}
+  body.hideui .hud,body.hideui #labels{opacity:0;pointer-events:none;transition:opacity .35s;}
+  @media (max-width:860px){
+    #titlebar{max-width:230px;padding:9px 12px;}
+    #titlebar h1{font-size:11px;letter-spacing:1.8px;}
+    #help{display:none;} #toolbar,#presets{max-width:250px;} #north{display:none;}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="labels"></div>
+
+<div id="titlebar" class="hud panel">
+  <h1>Voxel Bellandur</h1>
+  <div class="kn">ಬೆಳ್ಳಂದೂರು · Bengaluru</div>
+  <p>Bellandur Lake &amp; Outer Ring Road · 3.3 × 2.9 km</p>
+  <div class="rule"></div>
+  <div class="meta">
+    <span>1 VOXEL <b>4 m</b></span>
+    <span>SEED <b id="mSeed">—</b></span>
+    <span>BOXES <b id="mVox">—</b></span>
+    <span>DRAW <b id="mDraw">—</b></span>
+    <span>OSM <b id="mDate">—</b></span>
+  </div>
+</div>
+
+<div id="stats" class="hud panel"><span><span id="fps">60</span> FPS</span><span><b id="mTri">—</b> tris</span></div>
+
+<div id="toolbar" class="hud">
+  <button class="btn on" id="btnMode">Orbit</button>
+  <button class="btn on" id="btnBloom">Bloom</button>
+  <button class="btn on" id="btnAnim">Living</button>
+  <button class="btn" id="btnTime">Evening</button>
+  <button class="btn" id="btnLabels">Labels</button>
+</div>
+
+<div id="presets" class="hud">
+  <button class="pbtn on" data-p="0">Neighbourhood</button>
+  <button class="pbtn" data-p="1">Lake</button>
+  <button class="pbtn" data-p="2">Outer Ring Rd</button>
+  <button class="pbtn" data-p="3">Tech parks</button>
+  <button class="pbtn" data-p="4">Layouts</button>
+</div>
+
+<div id="help" class="hud panel">
+  <h2>Controls</h2>
+  <div class="row"><span><span class="k">LMB</span></span><span>Orbit / look</span></div>
+  <div class="row"><span><span class="k">RMB</span></span><span>Pan</span></div>
+  <div class="row"><span><span class="k">W</span><span class="k">A</span><span class="k">S</span><span class="k">D</span></span><span>Free-fly · <span class="k">Q</span><span class="k">E</span> down / up</span></div>
+  <div class="row"><span><span class="k">←</span><span class="k">→</span><span class="k">↑</span><span class="k">↓</span></span><span>Look (fly mode)</span></div>
+  <div class="row"><span><span class="k">1</span>–<span class="k">5</span></span><span>Camera presets</span></div>
+  <div class="hint"><span class="k">C</span> orbit ⇄ fly · <span class="k">T</span> day ⇄ evening · <span class="k">L</span> labels<br><span class="k">B</span> bloom · <span class="k">R</span> reset · <span class="k">F</span> freeze · <span class="k">H</span> hide UI</div>
+</div>
+
+<div id="north" class="hud">
+  <svg viewBox="0 0 64 64" width="66" height="66">
+    <circle cx="32" cy="32" r="29" fill="rgba(26,22,18,.55)" stroke="rgba(255,214,170,.28)" stroke-width="1"/>
+    <g class="needle">
+      <polygon points="32,9 37,34 32,30 27,34" fill="#ffb26b"/>
+      <polygon points="32,55 27,30 32,34 37,30" fill="#9d9083"/>
+    </g>
+    <text x="32" y="20" text-anchor="middle" font-size="8" fill="#ffe6c2" font-family="sans-serif" letter-spacing="1">N</text>
+  </svg>
+</div>
+
+<div id="scale" class="hud panel"><b id="scaleTxt">500 m</b><div class="bar" id="scaleBar" style="width:120px"><i></i></div></div>
+
+<div id="modeTag" class="hud panel">Camera: <b>Orbit</b></div>
+<div id="crosshair"></div>
+
+<div id="loader">
+  <div class="gl"><i></i><i></i><i></i><i></i></div>
+  <div class="name">Voxel Bellandur</div>
+  <div class="kn">ಬೆಳ್ಳಂದೂರು ಕೆರೆ</div>
+  <div class="bar"><i></i></div>
+  <div id="loadMsg" class="tip">Projecting UTM 43N…</div>
+</div>
+
+<script>/*__VENDOR__*/</script>
+<script>/*__GEO__*/</script>
+<script>/*__APP__*/</script>
+</body>
+</html>
