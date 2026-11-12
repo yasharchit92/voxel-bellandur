@@ -224,6 +224,11 @@ function paintJunctions() {
 /* ----------------------------------------------------------- lane graph */
 function buildLaneGraph() {
   const edges = laneGraph.edges, atNode = laneGraph.atNode;
+  /* endpoints are snapped to a 3-voxel lattice so that different OSM ways that
+     meet at a junction share a node — otherwise there is no graph, just a pile
+     of disconnected road segments and nothing can ever turn or queue */
+  const keyOf = (p) => (Math.round(p[0] / 3) + 4096) * 8192 + (Math.round(p[1] / 3) + 4096);
+  laneGraph.atIn = {};
   for (let k = 0; k < ROADS.length; k++) {
     const r = ROADS[k];
     if (r.cls > 6 || r.len < 2.5) continue;
@@ -234,12 +239,13 @@ function buildLaneGraph() {
       const pts = sgn > 0 ? r.pts.slice() : r.pts.slice().reverse();
       const e = {
         road: r, sgn: sgn, pts: pts, len: r.len, lanes: nLanes,
-        a: sgn > 0 ? r.idx[0] : r.idx[r.idx.length - 1],
-        b: sgn > 0 ? r.idx[r.idx.length - 1] : r.idx[0],
+        a: keyOf(pts[0]),
+        b: keyOf(pts[pts.length - 1]),
         cls: r.cls,
       };
       edges.push(e);
       (atNode[e.a] || (atNode[e.a] = [])).push(e);
+      (laneGraph.atIn[e.b] || (laneGraph.atIn[e.b] = [])).push(e);
     }
   }
   /* per-edge speed limits, derived from class only */

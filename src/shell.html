@@ -61,6 +61,19 @@
     padding:7px 10px;cursor:pointer;backdrop-filter:blur(10px);transition:.16s;}
   .pbtn:hover{color:#fff;border-color:rgba(127,208,192,.6);}
   .pbtn.on{color:#12211e;background:linear-gradient(180deg,#a9e6da,#7fd0c0);border-color:#9fe0d4;}
+  #btnstack{right:18px;top:62px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:390px;z-index:10;pointer-events:none;}
+  #btnstack #toolbar,#btnstack #presets,#btnstack #toolbar2{position:static;right:auto;top:auto;
+    display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:none;pointer-events:auto;}
+  #timebar{position:fixed;left:50%;transform:translateX(-50%);bottom:66px;display:flex;align-items:center;gap:10px;
+    padding:7px 14px;z-index:12;pointer-events:auto;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink2);}
+  #timebar #clock{color:#ffd9a8;font-weight:700;font-variant-numeric:tabular-nums;min-width:42px;}
+  #timebar #phase{opacity:.72;min-width:82px;}
+  #timebar input[type=range]{-webkit-appearance:none;appearance:none;width:190px;height:3px;border-radius:2px;
+    background:linear-gradient(90deg,#1b2b46 0%,#2f5a86 22%,#e8c48a 46%,#e08a52 54%,#2b3a6b 68%,#101828 100%);outline:none;}
+  #timebar input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;
+    background:#ffe6c2;border:1px solid #6b5a44;cursor:pointer;}
+  #btnPlay{background:none;border:none;color:#ffd9a8;font-size:10px;cursor:pointer;padding:0 2px;}
+  #btnPlay.on{color:#7fd0c0;}
 
   /* ---------- help ---------- */
   #help{left:18px;bottom:18px;padding:12px 15px;font-size:10px;letter-spacing:.5px;color:#b3a596;
@@ -135,7 +148,7 @@
   @media (max-width:860px){
     #titlebar{max-width:230px;padding:9px 12px;}
     #titlebar h1{font-size:11px;letter-spacing:1.8px;}
-    #help{display:none;} #toolbar,#presets{max-width:250px;} #north{display:none;}
+    #help{display:none;} #toolbar,#presets,#toolbar2{max-width:250px;} #north{display:none;}
   }
 </style>
 </head>
@@ -159,7 +172,8 @@
 
 <div id="stats" class="hud panel"><span><span id="fps">60</span> FPS</span><span><b id="mTri">—</b> tris</span></div>
 
-<div id="toolbar" class="hud">
+<div id="btnstack" class="hud">
+<div id="toolbar">
   <button class="btn on" id="btnMode">Orbit</button>
   <button class="btn on" id="btnBloom">Bloom</button>
   <button class="btn on" id="btnAnim">Living</button>
@@ -167,13 +181,30 @@
   <button class="btn" id="btnLabels">Labels</button>
 </div>
 
-<div id="presets" class="hud">
+<div id="presets">
   <button class="pbtn on" data-p="0">Neighbourhood</button>
   <button class="pbtn" data-p="1">Lake</button>
   <button class="pbtn" data-p="2">Outer Ring Rd</button>
   <button class="pbtn" data-p="3">Tech parks</button>
   <button class="pbtn" data-p="4">Layouts</button>
 </div>
+
+<div id="toolbar2">
+  <button class="btn" id="btnAtlas">Atlas</button>
+  <button class="btn" id="btnChase">Chase</button>
+  <button class="btn" id="btnSound">Sound</button>
+  <button class="btn" id="btnCard">Postcard</button>
+</div>
+</div>
+
+<div id="timebar" class="hud panel">
+  <button id="btnPlay" class="k" title="run the day">▶</button>
+  <span id="clock">09:24</span>
+  <input id="hour" type="range" min="0" max="24" step="0.02" value="9.4">
+  <span id="phase">afternoon</span>
+</div>
+
+
 
 <div id="help" class="hud panel">
   <h2>Controls</h2>
@@ -182,7 +213,7 @@
   <div class="row"><span><span class="k">W</span><span class="k">A</span><span class="k">S</span><span class="k">D</span></span><span>Free-fly · <span class="k">Q</span><span class="k">E</span> down / up</span></div>
   <div class="row"><span><span class="k">←</span><span class="k">→</span><span class="k">↑</span><span class="k">↓</span></span><span>Look (fly mode)</span></div>
   <div class="row"><span><span class="k">1</span>–<span class="k">5</span></span><span>Camera presets</span></div>
-  <div class="hint"><span class="k">C</span> orbit ⇄ fly · <span class="k">T</span> day ⇄ evening · <span class="k">L</span> labels<br><span class="k">B</span> bloom · <span class="k">R</span> reset · <span class="k">F</span> freeze · <span class="k">H</span> hide UI</div>
+  <div class="hint"><span class="k">C</span> orbit ⇄ fly · <span class="k">T</span> day ⇄ evening · <span class="k">L</span> labels<br><span class="k">B</span> bloom · <span class="k">R</span> reset · <span class="k">F</span> freeze · <span class="k">H</span> hide UI<br><span class="k">Y</span> run the day · <span class="k">V</span> atlas · <span class="k">G</span> chase · <span class="k">M</span> sound · <span class="k">P</span> postcard</div>
 </div>
 
 <div id="north" class="hud">

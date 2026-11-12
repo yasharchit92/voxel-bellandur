@@ -37,6 +37,65 @@ function wallPalette(cls, lv) {
   }
 }
 
+/* --------------------------------------------------------- plant deck (big roofs) */
+/* A 24 x 40 m campus roof is a fifth of an aerial frame; leaving it as a blank
+   slab is what makes a generated city read as generated.  Real ones are covered
+   in condenser banks, lift overruns, plant rooms, solar rows and water tanks. */
+function plantDeck(x0, x1, z0, z1, y, w, d) {
+  const area = w * d;
+  if (area < 11) return;
+  const step = 1.5;
+  const cols = clamp(Math.floor(w / step), 2, 7);
+  const rows = clamp(Math.floor(d / (step * 1.4)), 1, 4);
+  const kind = rnd();
+  if (kind < 0.34) {
+    /* condenser bank: rows of identical grey boxes */
+    for (let r = 0; r < rows; r++) {
+      const cz2 = lerp(z0 + 0.9, z1 - 0.9, rows === 1 ? 0.5 : r / (rows - 1));
+      for (let c = 0; c < cols; c++) {
+        const cx2 = lerp(x0 + 0.8, x1 - 0.8, cols === 1 ? 0.5 : c / (cols - 1));
+        const s2 = 0.62;
+        vb.blk(cx2 - s2 / 2, cx2 + s2 / 2, y + 0.02, y + 0.30, cz2 - s2 / 2, cz2 + s2 / 2, jitC(asCol(P.steel), 0.10));
+      }
+    }
+  } else if (kind < 0.58) {
+    /* solar array: a regular grid of dark panels — unmistakably Indian tech park */
+    const pw = Math.min(1.05, (w - 1.6) / 3), pd = 0.62;
+    for (let r = 0; r < rows + 1; r++) {
+      const cz2 = lerp(z0 + 0.8, z1 - 0.8, (rows === 0 ? 0.5 : r / rows));
+      for (let c = 0; c < cols; c++) {
+        const cx2 = lerp(x0 + 1.0, x1 - 1.0, cols === 1 ? 0.5 : c / Math.max(1, cols - 1));
+        vb.blk(cx2 - pw / 2, cx2 + pw / 2, y + 0.05, y + 0.20, cz2 - pd / 2, cz2 + pd / 2, jitC(SOLAR_C, 0.07));
+        vb.blk(cx2 - pw / 2, cx2 + pw / 2, y + 0.005, y + 0.05, cz2 - 0.03, cz2 + 0.03, asCol(P.steel));
+      }
+    }
+  } else {
+    /* plant room + lift overruns + tanks */
+    const pw = Math.min(w * 0.34, 2.4), pd = Math.min(d * 0.30, 2.0);
+    const px = lerp(x0 + pw * 0.7, x1 - pw * 0.7, rnd());
+    const pz = lerp(z0 + pd * 0.7, z1 - pd * 0.7, rnd());
+    vb.blk(px - pw / 2, px + pw / 2, y, y + rr(0.45, 0.85), pz - pd / 2, pz + pd / 2, jitC(asCol(P.wallPale), 0.05));
+    for (let k = 0; k < 2; k++) {
+      const lx = lerp(x0 + 0.7, x1 - 0.7, rnd()), lz = lerp(z0 + 0.7, z1 - 0.7, rnd());
+      vb.blk(lx - 0.34, lx + 0.34, y, y + 0.42, lz - 0.34, lz + 0.34, jitC(asCol(P.concreteDk), 0.05));
+    }
+    for (let k = 0; k < 3; k++) {
+      const tx = lerp(x0 + 0.6, x1 - 0.6, rnd()), tz = lerp(z0 + 0.6, z1 - 0.6, rnd()), s3 = rr(0.34, 0.5);
+      vb.blk(tx - s3 / 2, tx + s3 / 2, y + 0.10, y + 0.16, tz - s3 / 2, tz + s3 / 2, asCol(P.steel));
+      vb.blk(tx - s3 / 2, tx + s3 / 2, y + 0.16, y + 0.16 + s3 * 1.1, tz - s3 / 2, tz + s3 / 2, jitC(TANK_C, 0.1));
+      buildingStats.tanks++;
+    }
+  }
+  /* weathered patches: breaks the single flat slab colour */
+  for (let k = 0; k < 3; k++) {
+    const pw2 = rr(0.8, Math.max(1.1, w * 0.45)), pd2 = rr(0.8, Math.max(1.1, d * 0.45));
+    const px2 = rr(x0 + 0.2, Math.max(x0 + 0.3, x1 - pw2 - 0.2));
+    const pz2 = rr(z0 + 0.2, Math.max(z0 + 0.3, z1 - pd2 - 0.2));
+    vb.blk(px2, px2 + pw2, y + 0.008, y + 0.022, pz2, pz2 + pd2,
+      jitC(asCol(chance(0.5) ? P.concrete : P.concreteDk), 0.06));
+  }
+}
+
 /* ------------------------------------------------------------ roof clutter */
 function roofKit(x0, x1, z0, z1, y, w, d, big) {
   const area = (x1 - x0) * (z1 - z0);
@@ -50,11 +109,22 @@ function roofKit(x0, x1, z0, z1, y, w, d, big) {
       vb.blk(tx - s / 2, tx + s / 2, y + 0.14, y + 0.20, tz - s / 2, tz + s / 2, asCol(P.steel));
       vb.blk(tx - s / 2, tx + s / 2, y + 0.20, y + 0.20 + s * 1.15, tz - s / 2, tz + s / 2, jitC(TANK_C, 0.12));
       buildingStats.tanks++;
-    } else if (chance(0.5) && big) {
+    } else if (chance(big ? 0.55 : 0.18)) {
       /* solar array */
       const sw = 0.5, sd = 0.36;
       vb.blk(tx - sw / 2, tx + sw / 2, y + 0.14, y + 0.2, tz - sd / 2, tz + sd / 2, asCol(P.steel));
       vb.blk(tx - sw / 2, tx + sw / 2, y + 0.2, y + 0.26, tz - sd / 2, tz + sd / 2, jitC(SOLAR_C, 0.1));
+    } else if (chance(0.55)) {
+      /* split AC condenser, usually against the parapet */
+      const aw = rr(0.16, 0.26), edge = chance(0.5);
+      const ax2 = edge ? tx : (chance(0.5) ? x0 + 0.25 : x1 - 0.25);
+      const az2 = edge ? (chance(0.5) ? z0 + 0.25 : z1 - 0.25) : tz;
+      vb.blk(ax2 - aw / 2, ax2 + aw / 2, y + 0.11, y + 0.11 + aw * 0.8, az2 - aw / 2, az2 + aw / 2,
+        jitC(asCol(P.steel), 0.14));
+    } else if (chance(0.30)) {
+      /* satellite dish on a stub */
+      vb.blk(tx - 0.03, tx + 0.03, y + 0.12, y + 0.34, tz - 0.03, tz + 0.03, asCol(P.steel));
+      vb.blk(tx - 0.15, tx + 0.15, y + 0.32, y + 0.40, tz - 0.10, tz + 0.10, asCol(P.white));
     } else if (chance(0.45)) {
       /* stair head / lift machine room */
       const s = rr(0.4, 0.7);
@@ -62,9 +132,19 @@ function roofKit(x0, x1, z0, z1, y, w, d, big) {
         jitC(asCol(P.wallPale), 0.06));
     }
   }
+  /* laundry line strung between two stubs */
+  if (w > 1.6 && d > 1.2 && chance(0.22)) {
+    const ly = y + rr(0.5, 0.8), lz = rr(z0 + 0.3, z1 - 0.3);
+    vb.blk(x0 + 0.25, x1 - 0.25, ly, ly + 0.018, lz - 0.01, lz + 0.01, asCol(P.white));
+    for (let c = 0; c < 3; c++) {
+      const cx2 = rr(x0 + 0.4, x1 - 0.4);
+      vb.blk(cx2 - 0.05, cx2 + 0.05, ly - 0.12, ly, lz - 0.02, lz + 0.02,
+        jitC(asCol(chance(0.5) ? P.wallPale : P.roofTile), 0.1));
+    }
+  }
   /* parapet ring */
   if (w >= 2 && d >= 2) {
-    const t = 0.12, h = 0.2;
+    const t = 0.12, h = rr(0.16, 0.26);
     vb.blk(x0, x1, y, y + h, z0, z0 + t, asCol(P.concreteDk));
     vb.blk(x0, x1, y, y + h, z1 - t, z1, asCol(P.concreteDk));
     vb.blk(x0, x0 + t, y, y + h, z0 + t, z1 - t, asCol(P.concreteDk));
@@ -112,6 +192,7 @@ function apartmentBlock(x0, x1, z0, z1, H, wall) {
     vb.blk(x0 + s, x1 - s, H, H + 0.55, z0 + s, z1 - s, jitC(asCol(P.concrete), 0.04));
   }
   roofKit(x0, x1, z0, z1, H, w, d, true);
+  plantDeck(x0, x1, z0, z1, H + 0.13, w, d);
 }
 
 /* --------------------------------------------------------- glass / office */
@@ -152,6 +233,7 @@ function officeBlock(x0, x1, z0, z1, H, wall) {
   if (H > 2.2) {
     vb.blk(x0 - 0.09, x1 + 0.09, H, H + 0.13, z0 - 0.09, z1 + 0.09, asCol(P.concrete));
     roofKit(x0, x1, z0, z1, H + 0.13, w, d, true);
+    plantDeck(x0, x1, z0, z1, H + 0.13, w, d);
   } else {
     roofKit(x0, x1, z0, z1, H, w, d, false);
   }
@@ -191,6 +273,7 @@ function houseBlock(x0, x1, z0, z1, H, wall) {
   }
   /* one warm window */
   if (chance(0.55) && H > 1.2) {
+    vg.onDefault = clamp(0.42 + rr(0, 0.44), 0, 0.97);
     const y = rr(0.55, Math.max(0.6, H - 0.35));
     if (w >= d) vg.blk(x0 + 0.2, x1 - 0.2, y, y + 0.26, z0 - 0.02, z0, asCol(P.glowWarm));
     else vg.blk(x0 - 0.02, x0, y, y + 0.26, z0 + 0.2, z1 - 0.2, asCol(P.glowWarm));

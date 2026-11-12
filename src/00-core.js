@@ -137,7 +137,22 @@ const P = {
 
 /* --------------------------- MATERIALS + PROGRAM -------------------------- */
 const litMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+/* every emissive voxel carries a turn-on time (aOn) so the city can light up
+   progressively as the sun goes down; the intensity of the whole system rides
+   on one uniform.  This is what makes dusk feel like a wave crossing the city. */
+const NIGHT = {
+  dusk: { value: 0.0 },        /* 0 = full day, 1 = all lights on        */
+  level: { value: 0.0 },       /* overall emissive + spill brightness    */
+};
 const glowMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+glowMat.onBeforeCompile = (sh) => {
+  sh.uniforms.uDusk = NIGHT.dusk;
+  sh.vertexShader = 'attribute float aOn;\nvarying float vOn;\n' +
+    sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vOn = aOn;');
+  sh.fragmentShader = 'varying float vOn;\nuniform float uDusk;\n' +
+    sh.fragmentShader.replace('void main() {',
+      'void main() {\n  if (vOn > uDusk) discard;');
+};
 
 /* per-fragment grain so big flat surfaces (asphalt, footpaths, roofs) breathe
    without any texture file — derived from the instance colour + normal only. */
@@ -156,50 +171,6 @@ litMat.onBeforeCompile = (sh) => {
 
 /* water gets its own material: a depth tint, a grazing-angle sky reflection
    and a slow ripple, all computed from world position so no plate seams show  */
-const waterU = { uTime: { value: 0 }, uSun: { value: new THREE.Vector3(0.66, 0.545, 0.518).normalize() } };
-const waterMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-waterMat.onBeforeCompile = (sh) => {
-  sh.uniforms.uTime = waterU.uTime;
-  sh.uniforms.uSun = waterU.uSun;
-  sh.vertexShader = sh.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vWp;\nvarying vec3 vVd;')
-    .replace('#include <project_vertex>',
-      '#include <project_vertex>\nvWp = (instanceMatrix * vec4(position, 1.0)).xyz;\nvVd = normalize(-mvPosition.xyz);');
-  sh.fragmentShader = sh.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vWp;\nvarying vec3 vVd;\nuniform float uTime;\nuniform vec3 uSun;\n' +
-      'float hsh(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }\n' +
-      'float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);\n' +
-      '  return mix(mix(hsh(i),hsh(i+vec2(1.0,0.0)),f.x), mix(hsh(i+vec2(0.0,1.0)),hsh(i+vec2(1.0,1.0)),f.x), f.y); }')
-    .replace('#include <color_fragment>', [
-      '#include <color_fragment>',
-      /* slow drifting ripples give the surface a normal to work with */
-      'vec2 rp = vWp.xz * 0.42 + vec2(uTime * 0.030, uTime * 0.022);',
-      'rp += vn(vWp.xz * 0.09 + vec2(uTime * 0.012, -uTime * 0.010)) * 2.4;',
-      'float e = 0.35;',
-      'float n0 = vn(rp), nx = vn(rp + vec2(e, 0.0)), nz = vn(rp + vec2(0.0, e));',
-      'float n1 = vn(rp * 2.7 + 13.0), nx1 = vn(rp * 2.7 + vec2(e * 2.7, 0.0) + 13.0), nz1 = vn(rp * 2.7 + vec2(0.0, e * 2.7) + 13.0);',
-      'vec3 N = normalize(vec3((n0 - nx) * 1.5 + (n1 - nx1) * 0.55, 1.0, (n0 - nz) * 1.5 + (n1 - nz1) * 0.55));',
-      'vec3 V = normalize(cameraPosition - vWp);',
-      
-      /* depth tint from a second, larger noise */
-      'float d = vn(vWp.xz * 0.028) * 0.66 + vn(vWp.xz * 0.095) * 0.34;',
-      'vec3 shallowC = vec3(0.300, 0.455, 0.470);',
-      'vec3 deepC    = vec3(0.120, 0.245, 0.290);',
-      'vec3 wc = mix(shallowC, deepC, smoothstep(0.20, 0.88, d));',
-      /* sky reflection at grazing angles: this is what makes it read as water */
-      'float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.2);',
-      'vec3 skyC = vec3(0.660, 0.780, 0.860);',
-      'wc = mix(wc, skyC, clamp(fres * 1.25, 0.0, 0.90));',
-      /* sun glitter on the ripple normals */
-      'vec3 R = reflect(-V, N);',
-      'float spec = pow(max(dot(R, normalize(uSun)), 0.0), 42.0);',
-      'wc += vec3(1.0, 0.965, 0.895) * spec * 2.2;',
-      'float spec2 = pow(max(dot(R, normalize(uSun)), 0.0), 8.0);',
-      'wc += vec3(0.95, 0.90, 0.82) * spec2 * 0.07;',
-      'diffuseColor.rgb = wc;',
-    ].join('\n'));
-};
-
 /* --------------------------- INSTANCED BOX BUILDER ------------------------ */
 class Builder {
   constructor(withAO) {
@@ -207,6 +178,9 @@ class Builder {
     this.sx = []; this.sy = []; this.sz = [];
     this.cr = []; this.cg = []; this.cb = [];
     this.rot = [];
+    this.on = [];              /* per-instance turn-on time (0..1) */
+    this.onDefault = 0.55;
+    this.onJitter = 0.16;
     this.n = 0;
     this.ao = withAO !== false;
     this.grid = this.ao ? new Map() : null;
@@ -217,6 +191,7 @@ class Builder {
     this.sx.push(sx); this.sy.push(sy); this.sz.push(sz);
     this.cr.push(col[0]); this.cg.push(col[1]); this.cb.push(col[2]);
     this.rot.push(0);
+    this.on.push(clamp(this.onDefault + rr(-this.onJitter, this.onJitter), 0.0, 1.0));
     this.n++;
     return this;
   }
@@ -293,6 +268,11 @@ class Builder {
       mesh.setColorAt(i, col);
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (opts.fade) {
+      const on = new Float32Array(n);
+      for (let i = 0; i < n; i++) on[i] = this.on[i] === undefined ? 0 : this.on[i];
+      mesh.geometry.setAttribute('aOn', new THREE.InstancedBufferAttribute(on, 1));
+    }
     mesh.castShadow = opts.cast !== false;
     mesh.receiveShadow = opts.receive !== false;
     mesh.frustumCulled = false;
@@ -342,22 +322,61 @@ const skyU = {
   cMid: { value: new THREE.Color(0x9dc9dd) },
   cBot: { value: new THREE.Color(0xd8d2c2) },
   sunDir: { value: new THREE.Vector3(0.66, 0.545, 0.518).normalize() },
+  uTime: { value: 0 },
+  uCloud: { value: 0.52 },
+  uSunI: { value: 1.0 },
+  uNight: { value: 0.0 },
 };
 (function makeSky() {
-  const geo = new THREE.SphereGeometry(3000, 32, 20);
+  const geo = new THREE.SphereGeometry(3000, 48, 28);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
     uniforms: skyU,
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: [
-      'varying vec3 vDir; uniform vec3 cTop, cMid, cBot, sunDir;',
+      'varying vec3 vDir;',
+      'uniform vec3 cTop, cMid, cBot, sunDir;',
+      'uniform float uTime, uCloud, uSunI, uNight;',
+      'float hsh(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }',
+      'float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);',
+      '  return mix(mix(hsh(i),hsh(i+vec2(1.0,0.0)),f.x), mix(hsh(i+vec2(0.0,1.0)),hsh(i+vec2(1.0,1.0)),f.x), f.y); }',
+      'float fbm(vec2 p){ float a=0.5, s=0.0; for(int i=0;i<5;i++){ s+=a*vn(p); p=p*2.03+vec2(1.7,9.2); a*=0.5; } return s; }',
       'void main(){',
-      '  float h = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);',
+      '  vec3 dir = normalize(vDir);',
+      '  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);',
       '  vec3 col = mix(cBot, cMid, smoothstep(0.44, 0.63, h));',
       '  col = mix(col, cTop, smoothstep(0.60, 0.99, h));',
-      '  float s = max(dot(normalize(vDir), normalize(sunDir)), 0.0);',
-      '  col += vec3(1.0, 0.93, 0.76) * pow(s, 24.0) * 0.42;',
-      '  col += vec3(1.0, 0.95, 0.84) * pow(s, 3.0) * 0.09;',
+      /* --- stars: only once the sky is deep --- */
+      '  float starMask = smoothstep(0.62, 0.95, dir.y) * uNight;',
+      '  if (starMask > 0.01) {',
+      '    vec2 sp = dir.xz / max(abs(dir.y), 0.05) * 34.0;',
+      '    float st = pow(hsh(floor(sp)), 46.0) * 1.6;',
+      '    col += vec3(0.86, 0.90, 1.0) * st * starMask;',
+      '  }',
+      /* --- cumulus: projected onto a plane above the camera, lit by the sun --- */
+      '  float up = max(dir.y, 0.03);',
+      '  vec2 cp = dir.xz / up * 1.55 + vec2(uTime * 0.0040, uTime * 0.0026);',
+      '  float c1 = fbm(cp * 0.34);',
+      '  float c2 = fbm(cp * 0.34 + vec2(2.7, -1.4) + fbm(cp * 0.12) * 0.75);',
+      '  float dens = c2 * 0.74 + c1 * 0.36;',
+      '  float covT = mix(0.52, 0.24, uCloud);',
+      '  float cl = smoothstep(covT, covT + 0.15, dens);',
+      '  cl *= smoothstep(0.010, 0.13, dir.y);',
+      '  float sunAmt = max(dot(dir, normalize(sunDir)), 0.0);',
+      '  float lit = smoothstep(0.06, 0.66, c2);',
+      '  vec3 cloudCol = mix(vec3(0.50, 0.54, 0.60), vec3(1.02, 1.00, 0.97), lit);',
+      '  cloudCol = mix(cloudCol, vec3(1.0, 0.88, 0.72), pow(sunAmt, 6.0) * 0.75 * uSunI);',
+      '  cloudCol *= mix(0.70, 1.0, smoothstep(0.02, 0.55, dir.y));',
+      '  cloudCol *= mix(0.74, 1.0, uSunI);',
+      '  col = mix(col, cloudCol, cl * 0.94);',
+      /* --- sun disc + halo, fading out under the horizon --- */
+      '  float s = max(dot(dir, normalize(sunDir)), 0.0);',
+      '  float above = smoothstep(-0.10, 0.06, normalize(sunDir).y);',
+      '  col += vec3(1.0, 0.93, 0.76) * pow(s, 900.0) * 1.6 * above;',
+      '  col += vec3(1.0, 0.93, 0.76) * pow(s, 24.0) * 0.42 * uSunI;',
+      '  col += vec3(1.0, 0.95, 0.84) * pow(s, 3.0) * 0.10 * uSunI;',
+      /* --- haze band hugging the horizon --- */
+      '  col = mix(col, cBot * 1.02, smoothstep(0.06, -0.03, dir.y) * 0.55);',
       '  gl_FragColor = vec4(col, 1.0);',
       '}'].join('\n'),
   });
@@ -445,50 +464,102 @@ const vw = new Builder(false);   /* water surface */
 const anim = [];                 /* per-frame updaters            */
 const ui = { labels: [], showLabels: false };
 
-/* ------------------------------- DAY / NIGHT ----------------------------- */
+/* ------------------------------- SUN & SKY ------------------------------- */
+/* One parameter drives everything: the hour.  Sun position, light colour,
+   sky gradient, fog, cloud cover, bloom and the fraction of the city whose
+   lights are on are all read off this table and interpolated. */
+const SKYKEYS = [
+  { h: 4.4,  el: -24, az: 300, sun: 0x8fa8d8, sunI: 0.00, hs: 0x2b3350, hg: 0x1a1714, hi: 0.16, amb: 0.045,
+    top: 0x070c1b, mid: 0x0f1930, bot: 0x1a2340, fog: 0x0f1626, fn: 700, ff: 2200, bl: 0.85, th: 0.70, cl: 0.22 },
+  { h: 6.1,  el: 3,   az: 103, sun: 0xffab72, sunI: 0.22, hs: 0x6e7ea8, hg: 0x3c312b, hi: 0.22, amb: 0.06,
+    top: 0x28406e, mid: 0xa5837d, bot: 0xf2c096, fog: 0xa8968f, fn: 900, ff: 3000, bl: 0.62, th: 0.78, cl: 0.44 },
+  { h: 7.9,  el: 19,  az: 113, sun: 0xffe2b6, sunI: 0.72, hs: 0xbcd4e6, hg: 0x6d5a3f, hi: 0.30, amb: 0.08,
+    top: 0x3573b8, mid: 0x9dc0d4, bot: 0xd9d3c2, fog: 0xd2d6cc, fn: 1500, ff: 4600, bl: 0.20, th: 1.03, cl: 0.52 },
+  { h: 12.5, el: 63,  az: 176, sun: 0xfff6e4, sunI: 0.95, hs: 0xcfe4f2, hg: 0x7a6040, hi: 0.34, amb: 0.09,
+    top: 0x2f74bd, mid: 0x9ec2d6, bot: 0xd8d2c2, fog: 0xd0d4cc, fn: 1700, ff: 5000, bl: 0.18, th: 1.05, cl: 0.54 },
+  { h: 16.2, el: 25,  az: 240, sun: 0xffe6bd, sunI: 0.88, hs: 0xd6e2ea, hg: 0x8a6f4a, hi: 0.33, amb: 0.08,
+    top: 0x3a72ae, mid: 0xaabcc8, bot: 0xe8d5b6, fog: 0xd8d0bd, fn: 1500, ff: 4400, bl: 0.20, th: 1.04, cl: 0.50 },
+  { h: 18.35, el: 4,  az: 262, sun: 0xff9a5e, sunI: 0.46, hs: 0x8d90ad, hg: 0x5a4438, hi: 0.26, amb: 0.07,
+    top: 0x2c3f78, mid: 0xc07a5c, bot: 0xf0b384, fog: 0xc09a86, fn: 1000, ff: 3200, bl: 0.56, th: 0.84, cl: 0.46 },
+  { h: 19.35, el: -4, az: 270, sun: 0xff7a4a, sunI: 0.12, hs: 0x4a5680, hg: 0x2c2420, hi: 0.19, amb: 0.055,
+    top: 0x16294f, mid: 0x8a5a56, bot: 0xc98c72, fog: 0x7d6a66, fn: 800, ff: 2600, bl: 0.78, th: 0.74, cl: 0.34 },
+  { h: 21.0, el: -26, az: 296, sun: 0x93a9d4, sunI: 0.00, hs: 0x28304c, hg: 0x181512, hi: 0.15, amb: 0.045,
+    top: 0x080d1c, mid: 0x101a33, bot: 0x1b2440, fog: 0x101828, fn: 700, ff: 2200, bl: 0.86, th: 0.72, cl: 0.26 },
+];
 const TIME = {
-  t: 0,                          /* 0 = late afternoon, 1 = evening */
-  target: 0,
-  day: {
-    sunDir: new THREE.Vector3(0.66, 0.545, 0.518).normalize(),
-    sunCol: new THREE.Color(0xffeecf), sunInt: 0.90,
-    hemiSky: new THREE.Color(0xcfe4f2), hemiGnd: new THREE.Color(0x775f3f), hemiInt: 0.33,
-    ambInt: 0.08,
-    skyTop: new THREE.Color(0x2f74bd), skyMid: new THREE.Color(0x9ec2d6), skyBot: new THREE.Color(0xd8d2c2),
-    fog: new THREE.Color(0xd0d4cc), fogNear: 1050, fogFar: 2900,
-    clear: new THREE.Color(0xd2d6d0),
-  },
-  eve: {
-    sunDir: new THREE.Vector3(0.58, 0.075, 0.81).normalize(),
-    sunCol: new THREE.Color(0xffa869), sunInt: 0.34,
-    hemiSky: new THREE.Color(0x5a6a94), hemiGnd: new THREE.Color(0x342a26), hemiInt: 0.20,
-    ambInt: 0.075,
-    skyTop: new THREE.Color(0x16294f), skyMid: new THREE.Color(0xb06a4e), skyBot: new THREE.Color(0xe8a878),
-    fog: new THREE.Color(0x9c7e70), fogNear: 560, fogFar: 2000,
-    clear: new THREE.Color(0x9c7e70),
-  },
+  h: 9.4, targetH: 9.4,
+  playing: false, speed: 0.55,      /* hours per second when the day is running */
+  sunVec: new THREE.Vector3(0.66, 0.545, 0.518).normalize(),
+  el: 25, dusk: 0, night: 0,
+  key: SKYKEYS[4],
 };
-function applyTime(t) {
-  TIME.t = t;
-  const a = TIME.day, b = TIME.eve;
-  sun.position.copy(a.sunDir.clone().lerp(b.sunDir, t)).normalize().multiplyScalar(600);
-  skyU.sunDir.value.copy(sun.position).normalize();
-  waterU.uSun.value.copy(skyU.sunDir.value);
-  sun.color.copy(a.sunCol).lerp(b.sunCol, t);
-  sun.intensity = lerp(a.sunInt, b.sunInt, t);
-  hemi.color.copy(a.hemiSky).lerp(b.hemiSky, t);
-  hemi.groundColor.copy(a.hemiGnd).lerp(b.hemiGnd, t);
-  hemi.intensity = lerp(a.hemiInt, b.hemiInt, t);
-  ambient.intensity = lerp(a.ambInt, b.ambInt, t);
-  skyU.cTop.value.copy(a.skyTop).lerp(b.skyTop, t);
-  skyU.cMid.value.copy(a.skyMid).lerp(b.skyMid, t);
-  skyU.cBot.value.copy(a.skyBot).lerp(b.skyBot, t);
-  scene.fog.color.copy(a.fog).lerp(b.fog, t);
-  scene.fog.near = lerp(a.fogNear, b.fogNear, t);
-  scene.fog.far = lerp(a.fogFar, b.fogFar, t);
-  renderer.setClearColor(a.clear.clone().lerp(b.clear, t), 1);
-  if (bloomPass) { bloomPass.strength = lerp(0.26, 0.80, t); bloomPass.threshold = lerp(1.0, 0.74, t); }
-  if (vg.mesh) vg.mesh.visible = t > 0.02;
-  for (let i = 0; i < glowSprites.length; i++) glowSprites[i].visible = t > 0.05;
-  if (ui.onTime) ui.onTime(t);
+function _k(prop, a, b, t) {
+  if (typeof a[prop] === 'number') return lerp(a[prop], b[prop], t);
+  return a[prop].clone().lerp(b[prop], t);
 }
+function sunVecFor(elDeg, azDeg) {
+  const el = elDeg * Math.PI / 180, az = azDeg * Math.PI / 180;
+  return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)).normalize();
+}
+function applyHour(h) {
+  TIME.h = ((h % 24) + 24) % 24;
+  const n = SKYKEYS.length;
+  let i0 = n - 1, i1 = 0;
+  for (let i = 0; i < n; i++) {
+    const hn = SKYKEYS[(i + 1) % n].h + (i + 1 >= n ? 24 : 0);
+    const hi = SKYKEYS[i].h;
+    const hh = TIME.h < SKYKEYS[0].h ? TIME.h + 24 : TIME.h;
+    if (hh >= hi && hh < hn) { i0 = i; i1 = (i + 1) % n; break; }
+  }
+  const A = SKYKEYS[i0], B = SKYKEYS[i1];
+  let span = B.h - A.h; if (span <= 0) span += 24;
+  let into = TIME.h - A.h; if (into < 0) into += 24;
+  const t = clamp(span > 0 ? into / span : 0, 0, 1);
+  TIME.key = A;
+  const el = lerp(A.el, B.el, t), az = lerp(A.az, B.az, t);
+  TIME.el = el;
+  TIME.sunVec.copy(sunVecFor(el, az));
+  sun.position.copy(TIME.sunVec).multiplyScalar(600);
+  skyU.sunDir.value.copy(TIME.sunVec);
+  waterU.uSun.value.copy(TIME.sunVec);
+  const sunI = lerp(A.sunI, B.sunI, t);
+  sun.color.setHex(A.sun).lerp(new THREE.Color(B.sun), t);
+  sun.intensity = sunI;
+  sun.castShadow = sunI > 0.06;
+  hemi.color.setHex(A.hs).lerp(new THREE.Color(B.hs), t);
+  hemi.groundColor.setHex(A.hg).lerp(new THREE.Color(B.hg), t);
+  hemi.intensity = lerp(A.hi, B.hi, t);
+  ambient.intensity = lerp(A.amb, B.amb, t);
+  skyU.cTop.value.setHex(A.top).lerp(new THREE.Color(B.top), t);
+  skyU.cMid.value.setHex(A.mid).lerp(new THREE.Color(B.mid), t);
+  skyU.cBot.value.setHex(A.bot).lerp(new THREE.Color(B.bot), t);
+  scene.fog.color.setHex(A.fog).lerp(new THREE.Color(B.fog), t);
+  scene.fog.near = lerp(A.fn, B.fn, t);
+  scene.fog.far = lerp(A.ff, B.ff, t);
+  renderer.setClearColor(scene.fog.color, 1);
+  skyU.uCloud.value = lerp(A.cl, B.cl, t);
+  skyU.uSunI.value = clamp(sunI / 0.9, 0, 1.3);
+  waterU.uSunI.value = clamp(sunI / 0.9, 0, 1.3);
+  waterU.uLight.value = clamp(hemi.intensity * 2.0 + sunI * 0.75 + ambient.intensity, 0.18, 1.0);
+  sun.shadow.needsUpdate = true;      /* the light moved: refresh the shadow map now */
+  if (bloomPass) {
+    bloomPass.strength = lerp(A.bl, B.bl, t);
+    bloomPass.threshold = lerp(A.th, B.th, t);
+  }
+  /* how far into "the lights are on" we are: driven by the sun being down */
+  const dusk = 1 - smoothstep(-3.0, 13.0, el);
+  TIME.dusk = dusk;
+  TIME.night = smoothstep(0.45, 0.95, dusk);
+  NIGHT.dusk.value = Math.max(0.001, dusk);
+  NIGHT.level.value = dusk;
+  skyU.uNight.value = TIME.night;
+  if (vg.mesh) vg.mesh.visible = dusk > 0.02;
+  if (typeof spill !== 'undefined' && spill.mat) {
+    spill.mat.opacity = 0.62 * NIGHT.level.value;
+    spill.mesh.visible = NIGHT.level.value > 0.02;
+  }
+  for (let i = 0; i < glowSprites.length; i++) glowSprites[i].visible = dusk > 0.05;
+  if (ui.onTime) ui.onTime(h);
+}
+/* kept for compatibility: t in 0..1 maps across the golden hour into night */
+function applyTime(t) { applyHour(lerp(9.4, 20.4, clamp(t, 0, 1))); }

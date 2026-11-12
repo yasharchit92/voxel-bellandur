@@ -54,7 +54,35 @@ const VT = {
 const PED_SHIRT = [C(0xd9d5c8), C(0xc2453a), C(0x2f5f9c), C(0xe0b93f), C(0x4a7f5a), C(0x8c5a9c), C(0xe8e2d4)];
 const PED_SKIN = [C(0x8a5f3f), C(0x9a6b48), C(0x7a5236)];
 
-const traffic = { veh: [], lit: null, glow: null, dyn: false };
+const traffic = { veh: [], lit: null, glow: null, dyn: false, t: 0, signals: [], byNode: {} };
+
+/* a signalised junction is any node where two classified roads meet */
+function buildSignals() {
+  const out = [];
+  const inAt = laneGraph.atIn, outAt = laneGraph.atNode;
+  for (const key in inAt) {
+    const inn = inAt[key] || [], out_ = outAt[key] || [];
+    const total = inn.length + out_.length;
+    if (total < 3) continue;
+    let big = 0, bigIn = 0;
+    for (let i = 0; i < inn.length; i++) if (inn[i].cls <= 2) { big++; bigIn++; }
+    for (let i = 0; i < out_.length; i++) if (out_[i].cls <= 2) big++;
+    if (big < 2 || bigIn < 1) continue;
+    const e = inn[0];
+    const p = e.pts[e.pts.length - 1];
+    out.push({ node: +key, x: p[0], z: p[1], phase: rnd(), deg: total });
+  }
+  out.sort((a, b) => b.deg - a.deg);
+  traffic.signals = out.slice(0, 56);
+  traffic.byNode = {};
+  for (let i = 0; i < traffic.signals.length; i++) traffic.byNode[traffic.signals[i].node] = traffic.signals[i];
+  return traffic.signals.length;
+}
+function signalOpen(t, axis, sgn) {
+  const cyc = ((t / 44 + sgn.phase) % 1 + 1) % 1;
+  if (axis === 0) return cyc < 0.42;
+  return cyc >= 0.50 && cyc < 0.92;
+}
 const peds = { list: [], body: null, head: null };
 
 function pickVehicle(cls) {
@@ -95,12 +123,12 @@ function buildTraffic() {
   for (let i = 0; i < edges.length; i++) {
     const e = edges[i];
     if (e.len < 5) continue;
-    const w = e.cls === 1 ? 22 : e.cls === 2 ? 12 : e.cls === 3 ? 6 : e.cls === 4 ? 3 : e.cls === 5 ? 1.2 : 0.4;
+    const w = e.cls === 1 ? 64 : e.cls === 2 ? 26 : e.cls === 3 ? 8 : e.cls === 4 ? 3 : e.cls === 5 ? 1.0 : 0.3;
     const slots = Math.max(1, Math.floor(e.len / 8));
     for (let s = 0; s < slots; s++) cand.push([e, w]);
   }
   /* weighted sample, deterministic */
-  const N = Math.min(760, cand.length);
+  const N = Math.min(900, cand.length);
   const picked = [];
   for (let i = 0; i < N; i++) {
     let tot = 0;
@@ -174,12 +202,46 @@ function laneAt(v, s, out) {
 const _lane = [0, 0, 0];
 function updateTraffic(dt) {
   if (!traffic.dyn) return;
+  traffic.t += dt;
   const veh = traffic.veh;
+  const byEdge = traffic._byEdge || (traffic._byEdge = new Map());
+  byEdge.clear();
   for (let i = 0; i < veh.length; i++) {
     const v = veh[i];
-    v.s += v.vmax * dt;
+    let a = byEdge.get(v.e);
+    if (!a) { a = []; byEdge.set(v.e, a); }
+    a.push(v);
+  }
+  /* who is in front of whom, on the same edge */
+  byEdge.forEach((a) => {
+    a.sort((p, q) => p.s - q.s);
+    for (let i = 0; i < a.length; i++) a[i].leadGap = i + 1 < a.length ? a[i + 1].s - a[i].s : 1e9;
+  });
+
+  for (let i = 0; i < veh.length; i++) {
+    const v = veh[i];
+    const V = VT[v.type];
+    /* --- target speed: free flow, limited by the car ahead and by signals --- */
+    let want = v.vmax;
+    const gap = Math.max(0.4, (v.leadGap === undefined ? 1e9 : v.leadGap) - V.len * 1.35);
+    want = Math.min(want, gap * 2.2);
+    const sig = traffic.byNode[v.e.b];
+    if (sig) {
+      const dx = Math.cos(v.ang || 0), dz = Math.sin(v.ang || 0);
+      const axis = Math.abs(dx) >= Math.abs(dz) ? 0 : 1;
+      const toStop = v.e.len - v.s;
+      if (!signalOpen(traffic.t, axis, sig)) {
+        if (toStop < 3.0) want = 0;
+        else if (toStop < 16) want = Math.min(want, (toStop - 3.0) * 1.1);
+      }
+    }
+    if (v.spd === undefined) v.spd = v.vmax * rnd();
+    const acc = want < v.spd ? 9.0 : 3.2;          /* brake harder than you accelerate */
+    v.spd += clamp(want - v.spd, -acc * dt, acc * dt);
+    v.spd = Math.max(0, v.spd);
+    v.s += v.spd * dt;
+
     if (v.s > v.e.len) {
-      /* choose the next edge at the far node */
       const node = v.e.b;
       const list = laneGraph.atNode[node];
       let best = null, bestScore = -1e9;
@@ -196,26 +258,33 @@ function updateTraffic(dt) {
           if (score > bestScore) { bestScore = score; best = c; }
         }
       }
+      v.s = Math.max(0, v.s - v.e.len);
       v.e = best || v.e;
-      v.s = 0;
+      v.leadGap = 1e9;
       v.nL = clamp(v.e.lanes, 1, 3);
       if (v.lane >= v.nL) v.lane = v.nL - 1;
     }
     laneAt(v, v.s, _lane);
-    const V = VT[v.type];
     const rot = -_lane[2];
     const y = GROUND_H[2] || 0;
-    traffic.lit.set(i * 3 + 0, _lane[0], y + V.hb / 2, _lane[1], V.len, V.hb, V.wid, rot, v.col);
-    traffic.lit.set(i * 3 + 1, _lane[0] - Math.cos(_lane[2]) * V.len * 0.08, y + V.hb + V.ht / 2,
-      _lane[1] - Math.sin(_lane[2]) * V.len * 0.08, V.len * 0.58, V.ht, V.wid * 0.9, rot,
+    /* autorickshaws weave a little; nothing else does */
+    let wx = _lane[0], wz = _lane[1];
+    if (v.type === 'auto') {
+      const wob = Math.sin(traffic.t * 1.7 + i * 1.3) * 0.42;
+      wx += -Math.sin(_lane[2]) * wob;
+      wz += Math.cos(_lane[2]) * wob;
+    }
+    v.wx = wx; v.wz = wz; v.rot = rot; v.ang = _lane[2]; v.speed = v.spd;
+    traffic.lit.set(i * 3 + 0, wx, y + V.hb / 2, wz, V.len, V.hb, V.wid, rot, v.col);
+    traffic.lit.set(i * 3 + 1, wx - Math.cos(_lane[2]) * V.len * 0.08, y + V.hb + V.ht / 2,
+      wz - Math.sin(_lane[2]) * V.len * 0.08, V.len * 0.58, V.ht, V.wid * 0.9, rot,
       v.type === 'auto' ? asCol(P.autoCanopy) : asCol(P.glassCar));
-    traffic.lit.set(i * 3 + 2, _lane[0], y + V.hb * 0.52, _lane[1], V.len * 0.88, 0.045, V.wid * 1.02, rot,
+    traffic.lit.set(i * 3 + 2, wx, y + V.hb * 0.52, wz, V.len * 0.88, 0.045, V.wid * 1.02, rot,
       v.type === 'bus' ? asCol(P.busBlue) : asCol(P.glassCar));
-    /* head/tail lights (only visible in the evening) */
     const fx = Math.cos(_lane[2]) * V.len * 0.48, fz = Math.sin(_lane[2]) * V.len * 0.48;
-    traffic.glow.set(i * 2 + 0, _lane[0] + fx, y + V.hb * 0.5, _lane[1] + fz,
+    traffic.glow.set(i * 2 + 0, wx + fx, y + V.hb * 0.5, wz + fz,
       V.wid * 1.0, 0.16, 0.22, rot, asCol(P.glowWarm));
-    traffic.glow.set(i * 2 + 1, _lane[0] - fx, y + V.hb * 0.75, _lane[1] - fz,
+    traffic.glow.set(i * 2 + 1, wx - fx, y + V.hb * 0.75, wz - fz,
       V.wid * 0.95, 0.13, 0.18, rot, asCol(P.glowRed));
   }
   traffic.lit.commit();
@@ -305,6 +374,9 @@ function updatePeds(dt) {
 /* ------------------------------------------------------- street furniture */
 function streetLights() {
   let n = 0;
+  const _on = vg.onDefault;
+  vg.onDefault = 0.16;
+  vg.onJitter = 0.10;
   for (let k = 0; k < ROADS.length; k++) {
     const r = ROADS[k];
     if (r.cls > 4 || r.tunnel) continue;
@@ -321,8 +393,12 @@ function streetLights() {
       vb.blk(px - rx * side * 0.55, px, 1.72, 1.8, pz - rz * side * 0.55, pz, asCol(P.pole));
       vg.blk(px - rx * side * 0.72 - 0.17, px - rx * side * 0.44 + 0.17, 1.56, 1.72,
         pz - rz * side * 0.72 - 0.17, pz - rz * side * 0.44 + 0.17, asCol(P.glowWarm));
+      if (LAMPS.length < 9000) LAMPS.push({ x: px - rx * side * 0.58, z: pz - rz * side * 0.58,
+        r: r.cls === 1 ? rr(6.0, 7.6) : r.cls === 2 ? rr(5.0, 6.4) : rr(3.8, 5.2) });
     });
   }
+  vg.onDefault = _on;
+  vg.onJitter = 0.16;
   return n;
 }
 

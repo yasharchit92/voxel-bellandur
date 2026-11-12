@@ -1,0 +1,13 @@
+{
+  "name": "voxel-bellandur",
+  "version": "1.0.0",
+  "description": "A single self-contained HTML file that renders **3.3 \u00d7 2.9 km of Bellandur \u2014 Bellandur Lake and the Bellandur stretch of the Outer Ring Road** \u2014 as an instanced voxel model. Every road, footprint, water body and place name in the scene comes from an OpenStreetMap extract; nothing is placed from memory. Open `voxel-bellandur.html` and it runs offline, with no network requests, no textures, no external models and no fonts to download.",
+  "scripts": {
+    "test": "node tests/regressions.js && node tests/spec.js"
+  },
+  "keywords": [],
+  "author": "",
+  "dependencies": {
+    "playwright": "^1.47.2"
+  }
+}

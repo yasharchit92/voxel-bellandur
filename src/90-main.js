@@ -13,6 +13,14 @@ const hud = {
   btnBloom: document.getElementById('btnBloom'),
   btnAnim: document.getElementById('btnAnim'),
   btnTime: document.getElementById('btnTime'),
+  btnAtlas: document.getElementById('btnAtlas'),
+  btnChase: document.getElementById('btnChase'),
+  btnSound: document.getElementById('btnSound'),
+  btnCard: document.getElementById('btnCard'),
+  btnPlay: document.getElementById('btnPlay'),
+  hour: document.getElementById('hour'),
+  clock: document.getElementById('clock'),
+  phase: document.getElementById('phase'),
   btnLabels: document.getElementById('btnLabels'),
   modeTag: document.getElementById('modeTag'),
   loader: document.getElementById('loader'),
@@ -126,6 +134,9 @@ controls.update();
 /* free-fly */
 const keys = Object.create(null);
 const fly = { yaw: 0, pitch: 0, speed: 26, active: false };
+const atlas = { on: false, k: 0, target: 0, saved: null };
+const chase = { on: false, idx: 0, k: 0 };
+const FLAT = [];
 function setFly(on) {
   state.orbit = !on;
   fly.active = on;
@@ -171,6 +182,13 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'f') { state.frozen = !state.frozen; hud.btnAnim.classList.toggle('on', !state.frozen); }
   else if (k === 't') toggleTime();
   else if (k === 'l') toggleLabels();
+  else if (k === 'v') toggleAtlas();
+  else if (k === 'g') toggleChase();
+  else if (k === 'm') toggleSound();
+  else if (k === 'p') doPostcard();
+  else if (k === 'y') hud.btnPlay.onclick();
+  else if (k === '[' && chase.on) chase.idx = (chase.idx + traffic.veh.length - 1) % traffic.veh.length;
+  else if (k === ']' && chase.on) chase.idx = (chase.idx + 1) % traffic.veh.length;
   else if (k >= '1' && k <= '5') { setFly(false); goPreset(+k - 1); }
   if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].indexOf(k) >= 0) e.preventDefault();
 });
@@ -203,6 +221,39 @@ function updateFly(dt) {
   camera.lookAt(camera.position.clone().add(look));
 }
 
+/* ------------------------------------------------------------------- hash */
+/* A view is a permalink: #p=x,y,z&t=x,y,z&h=19.1&m=orbit */
+function camHash() {
+  const p = camera.position, t = controls.target;
+  return '#p=' + p.toArray().map((v) => v.toFixed(1)).join(',') +
+    '&t=' + t.toArray().map((v) => v.toFixed(1)).join(',') +
+    '&h=' + TIME.h.toFixed(2) +
+    (atlas.on ? '&m=atlas' : chase.on ? '&m=chase' : fly.active ? '&m=fly' : '');
+}
+function applyCamHash(h) {
+  if (!h) return false;
+  const q = {};
+  h.replace(/^#/, '').split('&').forEach((kv) => {
+    const i = kv.indexOf('=');
+    if (i > 0) q[kv.slice(0, i)] = kv.slice(i + 1);
+  });
+  let ok = false;
+  if (q.p) {
+    const p = q.p.split(',').map(Number);
+    if (p.length === 3 && p.every((v) => isFinite(v))) { camera.position.set(p[0], p[1], p[2]); ok = true; }
+  }
+  if (q.t) {
+    const t = q.t.split(',').map(Number);
+    if (t.length === 3 && t.every((v) => isFinite(v))) { controls.target.set(t[0], t[1], t[2]); ok = true; }
+  }
+  if (q.h) { const h = parseFloat(q.h); if (isFinite(h)) { TIME.targetH = h; applyHour(h); ok = true; } }
+  if (q.m === 'atlas') { if (!atlas.on) toggleAtlas(); atlas.k = 1; }
+  if (q.m === 'chase') { if (!chase.on) toggleChase(); }
+  controls.update();
+  return ok;
+}
+let _hashT = 0, _hashLast = '';
+
 /* ------------------------------------------------------------------ toggles */
 function toggleBloom() {
   state.bloomOn = !state.bloomOn;
@@ -210,10 +261,19 @@ function toggleBloom() {
 }
 function toggleTime() {
   state.evening = !state.evening;
-  TIME.target = state.evening ? 1 : 0;
+  TIME.targetH = state.evening ? 20.4 : 9.4;
   hud.btnTime.textContent = state.evening ? 'Daytime' : 'Evening';
   hud.btnTime.classList.toggle('on', state.evening);
 }
+ui.onTime = (h) => {
+  if (!hud.clock) return;
+  const hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
+  hud.clock.textContent = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+  if (!state.dragging) hud.hour.value = h.toFixed(2);
+  const p = h < 5.2 ? 'night' : h < 7.2 ? 'dawn' : h < 11 ? 'morning' : h < 14.5 ? 'midday'
+    : h < 17.4 ? 'afternoon' : h < 18.9 ? 'golden hour' : h < 20.2 ? 'dusk' : 'night';
+  hud.phase.textContent = p;
+};
 function toggleLabels() {
   state.labels = !state.labels;
   hud.btnLabels.classList.toggle('on', state.labels);
@@ -226,6 +286,77 @@ hud.btnAnim.onclick = () => {
   hud.btnAnim.classList.toggle('on', state.live);
 };
 hud.btnTime.onclick = toggleTime;
+function toggleAtlas() {
+  atlas.on = !atlas.on;
+  hud.btnAtlas.classList.toggle('on', atlas.on);
+  if (atlas.on) {
+    atlas.saved = { p: camera.position.clone(), t: controls.target.clone() };
+    const t = controls.target;
+    camTween = {
+      p0: camera.position.clone(), p1: new THREE.Vector3(t.x, 760, t.z + 0.5),
+      t0: controls.target.clone(), t1: new THREE.Vector3(t.x, 0, t.z),
+      t: 0, dur: 1.7,
+    };
+    atlas.target = 1;
+    if (!state.labels) toggleLabels();
+  } else {
+    if (atlas.saved) {
+      camTween = {
+        p0: camera.position.clone(), p1: atlas.saved.p.clone(),
+        t0: controls.target.clone(), t1: atlas.saved.t.clone(), t: 0, dur: 1.5,
+      };
+    }
+    atlas.target = 0;
+  }
+}
+function toggleChase() {
+  chase.on = !chase.on;
+  hud.btnChase.classList.toggle('on', chase.on);
+  if (chase.on) {
+    setFly(false);
+    if (atlas.on) toggleAtlas();
+    /* start on the busiest vehicle we can find */
+    let best = 0, bs = -1;
+    for (let i = 0; i < traffic.veh.length; i++) {
+      const e = traffic.veh[i].e;
+      const s2 = e.cls <= 1 ? 3 : e.cls === 2 ? 2 : 0;
+      if (s2 + Math.random() * 0.4 > bs) { bs = s2; best = i; }
+    }
+    chase.idx = best;
+  }
+}
+function toggleSound() {
+  if (AUDIO.on) audioStop(); else audioStart();
+  hud.btnSound.classList.toggle('on', AUDIO.on);
+}
+function doPostcard() {
+  if (hud.btnCard) hud.btnCard.classList.add('on');
+  setTimeout(() => {
+    prepareCardImage(2).then(() => {
+      savePostcard(2);
+      if (hud.btnCard) setTimeout(() => hud.btnCard.classList.remove('on'), 900);
+    });
+  }, 30);
+}
+hud.btnAtlas.onclick = toggleAtlas;
+hud.btnChase.onclick = toggleChase;
+hud.btnSound.onclick = toggleSound;
+hud.btnCard.onclick = doPostcard;
+hud.btnPlay.onclick = () => {
+  TIME.playing = !TIME.playing;
+  hud.btnPlay.classList.toggle('on', TIME.playing);
+  hud.btnPlay.textContent = TIME.playing ? '❚❚' : '▶';
+};
+hud.hour.oninput = () => {
+  state.dragging = true;
+  TIME.playing = false;
+  hud.btnPlay.classList.remove('on');
+  hud.btnPlay.textContent = '▶';
+  const h = parseFloat(hud.hour.value);
+  TIME.targetH = h;
+  applyHour(h);
+};
+hud.hour.onchange = () => { state.dragging = false; };
 hud.btnLabels.onclick = toggleLabels;
 document.querySelectorAll('.pbtn').forEach((b) => {
   b.onclick = () => { setFly(false); goPreset(+b.dataset.p); };
@@ -275,6 +406,7 @@ function buildLabels() {
   hud.labels.style.display = 'none';
 }
 const _v = new THREE.Vector3();
+const _chaseV = new THREE.Vector3();
 const placed = [];
 function updateLabels() {
   if (!state.labels) return;
@@ -287,7 +419,7 @@ function updateLabels() {
     const sx = (_v.x * 0.5 + 0.5) * w, sy = (-_v.y * 0.5 + 0.5) * h;
     if (on) {
       /* simple label collision culling: the anchor set is priority-ordered */
-      const bw = (L.el.textContent.length * 5.4) / 2 + 6, bh = 18;
+      const bw = (L.el.textContent.length * 6.6) / 2 + 8, bh = 15;
       for (let p = 0; p < placed.length; p++) {
         const q = placed[p];
         if (Math.abs(sx - q[0]) < bw + q[2] && Math.abs(sy - q[1]) < bh + q[3]) { on = false; break; }
@@ -354,6 +486,7 @@ function boot() {
   if (!kannadaOK()) document.body.classList.add('nokn');
 
   buildTerrain();
+  buildWaterMask();
   buildRoads();
   buildCity();
   buildGreen();
@@ -363,21 +496,25 @@ function boot() {
   billboards();
   metroWorks();
   buildTraffic();
+  buildSignals();
   buildPeds();
   lakeLife();
 
   const litMesh = vb.build(litMat, { cast: true, receive: true });
-  const glowMesh = vg.build(glowMat, { cast: false, receive: false });
+  const glowMesh = vg.build(glowMat, { cast: false, receive: false, fade: true });
   const waterMesh = vw.build(waterMat, { cast: false, receive: true });
   if (waterMesh) { scene.add(waterMesh); vw.mesh = waterMesh; }
   if (litMesh) { scene.add(litMesh); vb.mesh = litMesh; }
   if (glowMesh) { scene.add(glowMesh); vg.mesh = glowMesh; vg.mesh.visible = false; }
+  buildLightSpill();
+  scene.traverse((o) => { if (o.isInstancedMesh && o !== waterMesh) FLAT.push(o); });
 
   dataPresets();
   setupComposer();
   buildLabels();
   goPreset(0, true);
-  applyTime(0);
+  applyHour(9.4);
+  if (location.hash && location.hash.length > 3) { camTween = null; applyCamHash(location.hash); }
   updateCompass();
 
   const tris = (vb.n + vg.n + vw.n) * 12;
@@ -397,6 +534,7 @@ function boot() {
     pos: () => camera.position.toArray().map((v) => +v.toFixed(1)),
     tgt: () => controls.target.toArray().map((v) => +v.toFixed(1)),
     stats: () => ({
+      boot: +(bootT / 1000).toFixed(2),
       lit: vb.n, glow: vg.n, water: vw.n, calls: renderer.info.render.calls,
       tris: renderer.info.render.triangles,
       vehicles: traffic.veh.length, peds: peds.list.length,
@@ -408,7 +546,42 @@ function boot() {
       trees: GREEN.trees, palms: GREEN.palms, tanks: buildingStats.tanks,
       glowBands: buildingStats.glow, tall: buildingStats.tall,
     }),
-    setTime: (t) => { TIME.t = t; TIME.target = t; applyTime(t); state.evening = t > 0.5; },
+    setTime: (v) => { const h = lerp(9.4, 20.6, clamp(v, 0, 1)); TIME.targetH = h; applyHour(h); state.evening = v > 0.5; },
+    /* ---- inspection hooks used by the test suite ---- */
+    timeState: () => ({
+      h: +TIME.h.toFixed(2), el: +TIME.el.toFixed(1), dusk: +TIME.dusk.toFixed(3),
+      moon: +TIME.night.toFixed(3), sunI: +sun.intensity.toFixed(3),
+      glowOn: +(vg.mesh && vg.mesh.visible).toString().replace('true', '1').replace('false', '0'),
+      uDusk: +NIGHT.dusk.value.toFixed(3), level: +NIGHT.level.value.toFixed(3),
+      spillOpacity: spill.mat ? +spill.mat.opacity.toFixed(3) : -1,
+      cloud: +skyU.uCloud.value.toFixed(2), bloom: bloomPass ? +bloomPass.strength.toFixed(2) : -1,
+      skyTop: '#' + skyU.cTop.value.getHexString(),
+    }),
+    step: (sec) => {
+      const n = Math.max(1, Math.round(sec / 0.05));
+      for (let i = 0; i < n; i++) {
+        updateTraffic(0.05); updatePeds(0.05); updateLightSpill(0.05); updateView(0.05);
+        for (let a = 0; a < anim.length; a++) anim[a](performance.now() / 1000, 0.05);
+      }
+      return n;
+    },
+    signals: () => traffic.signals.length,
+    vehicles: () => traffic.veh.map((v) => ({
+      x: +(v.wx || 0).toFixed(1), z: +(v.wz || 0).toFixed(1),
+      spd: +(v.spd || 0).toFixed(2), cls: v.e.cls, type: v.type,
+      queued: (v.spd || 0) < 0.35,
+    })),
+    spill: () => ({ cap: spill.cap, static_n: spill.nStatic, dyn: spill.nDyn, opacity: spill.mat ? spill.mat.opacity : -1 }),
+    setAtlas: (on) => { if (on !== atlas.on) toggleAtlas(); return atlas.on; },
+    atlasK: () => +atlas.k.toFixed(3),
+    setChase: (on) => { if (on !== chase.on) toggleChase(); return chase.on; },
+    chaseIdx: () => chase.idx,
+    audio: { start: audioStart, stop: audioStop, state: audioState },
+    postcard: (scale) => prepareCardImage(scale || 1).then(() => savePostcard(scale || 1)),
+    hash: () => camHash(),
+    applyHash: (h) => applyCamHash(h),
+    setHour: (h) => { applyHour(h); TIME.targetH = TIME.h; },
+    hour: () => TIME.h,
     preset: (i) => { setFly(false); goPreset(i, true); },
     labels: (on) => { state.labels = on; toggleLabels(); toggleLabels(); },
     camera: camera, scene: scene, THREE: THREE,
@@ -416,12 +589,49 @@ function boot() {
   };
   window.__vb = info;
   window.__vk = info;                     /* kept for older harnesses */
+  bootT = performance.now();
   ready = true;
 }
 let ready = false;
 
 /* ------------------------------------------------------------------- loop - */
-let last = 0, fpsT = 0, fpsN = 0, lastReal = 0, shadowTick = 0;
+let last = 0, fpsT = 0, fpsN = 0, lastReal = 0, shadowTick = 0, bootT = 0;
+function updateView(raw) {
+  if (camTween) {
+    camTween.t += raw / camTween.dur;
+    const k = clamp(camTween.t, 0, 1);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    camera.position.lerpVectors(camTween.p0, camTween.p1, e);
+    controls.target.lerpVectors(camTween.t0, camTween.t1, e);
+    if (k >= 1) camTween = null;
+  }
+  /* --- atlas: the model squashes to a flat map while the camera goes top-down --- */
+  if (Math.abs(atlas.k - atlas.target) > 0.0005) {
+    atlas.k += (atlas.target - atlas.k) * clamp(raw * 2.6, 0, 1);
+    if (Math.abs(atlas.k - atlas.target) < 0.0006) atlas.k = atlas.target;
+    const sy = 1 - 0.93 * atlas.k;
+    for (let i = 0; i < FLAT.length; i++) FLAT[i].scale.y = sy;
+    if (bloomPass) bloomPass.strength = lerp(0.26, 0.10, atlas.k);
+  }
+  /* --- chase: ride along with one vehicle --- */
+  if (chase.on && traffic.veh.length) {
+    const v = traffic.veh[chase.idx % traffic.veh.length];
+    if (v.wx !== undefined) {
+      const c = Math.cos(v.ang || 0), s2 = Math.sin(v.ang || 0);
+      const gx = v.wx - c * 8.4, gz = v.wz - s2 * 8.4;
+      /* lift the eye if the spot behind the vehicle is inside a block */
+      let gy = (GROUND_H[2] || 0) + 5.0;
+      if (typeof freeAt === 'function') {
+        if (!freeAt(gx, gz)) gy += 6.0;
+        if (!freeAt(v.wx, v.wz)) gy += 3.0;
+      }
+      camera.position.lerp(_chaseV.set(gx, gy, gz), clamp(raw * 5, 0, 1));
+      camera.lookAt(v.wx + c * 16, (GROUND_H[2] || 0) + 0.9, v.wz + s2 * 16);
+      controls.target.set(v.wx + c * 16, 0, v.wz + s2 * 16);
+    }
+  }
+}
+
 function animate(now) {
   requestAnimationFrame(animate);
   const realDt = lastReal ? Math.min(2, (now - lastReal) / 1000) : 0.016;
@@ -431,21 +641,20 @@ function animate(now) {
   const dt = state.frozen ? 0 : raw;
 
   /* time-of-day transition */
-  if (Math.abs(TIME.t - TIME.target) > 0.002) {
-    applyTime(TIME.t + (TIME.target - TIME.t) * clamp(raw * 3.2, 0, 1));
-  } else if (TIME.t !== TIME.target) applyTime(TIME.target);
-
-  if (camTween) {
-    camTween.t += raw / camTween.dur;
-    const k = clamp(camTween.t, 0, 1);
-    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-    camera.position.lerpVectors(camTween.p0, camTween.p1, e);
-    controls.target.lerpVectors(camTween.t0, camTween.t1, e);
-    if (k >= 1) camTween = null;
+  if (TIME.playing) {
+    TIME.targetH = (TIME.targetH + TIME.speed * raw) % 24;
+    TIME.h = TIME.targetH;
+    applyHour(TIME.h);
+  } else if (Math.abs(TIME.targetH - TIME.h) > 0.002) {
+    let dh = TIME.targetH - TIME.h;
+    if (dh > 12) dh -= 24; else if (dh < -12) dh += 24;
+    applyHour(TIME.h + dh * clamp(raw * 3.0, 0, 1));
   }
 
   updateFly(raw);
-  if (!fly.active) controls.update();
+  if (!fly.active && !chase.on) controls.update();
+
+  updateView(raw);
 
   /* the shadow frustum follows what we are looking at, and widens with it */
   const focus = fly.active ? camera.position : controls.target;
@@ -459,8 +668,7 @@ function animate(now) {
   }
   sun.shadow.autoUpdate = false;
   sun.target.position.set(focus.x, 0, focus.z);
-  sun.position.copy(sun.target.position).addScaledVector(
-    TIME.day.sunDir.clone().lerp(TIME.eve.sunDir, TIME.t), 600);
+  sun.position.copy(sun.target.position).addScaledVector(TIME.sunVec, 600);
   sun.target.updateMatrixWorld();
   /* the shadow map is expensive: refresh it every few frames, not every frame */
   if (spanMoved || ++shadowTick >= 8) { sun.shadow.needsUpdate = true; shadowTick = 0; }
@@ -468,6 +676,8 @@ function animate(now) {
   if (state.live && ready) {
     updateTraffic(dt);
     updatePeds(dt);
+    updateLightSpill(dt);
+    audioTick(raw);
     for (let i = 0; i < anim.length; i++) anim[i](performance.now() / 1000, dt);
   }
   waterU.uTime.value = now / 1000;
@@ -478,10 +688,11 @@ function animate(now) {
   if (composer && state.bloomOn) composer.render();
   else renderer.render(scene, camera);
 
-  hueFps(raw);
-}
-
-function hueFps(raw) {
+  if (realDt > 0 && now - _hashT > 700) {
+    _hashT = now;
+    const hh = camHash();
+    if (hh !== _hashLast) { _hashLast = hh; try { history.replaceState(null, '', hh); } catch (e) {} }
+  }
   fpsT += realDt; fpsN++;
   if (fpsT > 0.5) {
     const f = Math.round(fpsN / fpsT);

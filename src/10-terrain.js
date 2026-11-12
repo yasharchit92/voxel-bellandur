@@ -154,3 +154,62 @@ function buildTerrain() {
     }
   }
 }
+
+/* ---------------------------------------------------------------------------
+   LAKE MASK — a blurred occupancy texture of the lake, handed to the water
+   shader so it can grow silt, weed and a foam band along the real shoreline
+   instead of an invented one.
+   ------------------------------------------------------------------------- */
+function buildWaterMask() {
+  const GW = W.w, GH = W.h;
+  const src = document.createElement('canvas');
+  src.width = GW; src.height = GH;
+  const sctx = src.getContext('2d');
+  const img = sctx.createImageData(GW, GH);
+  const wet = new Float32Array(GW * GH);
+  for (let k = 0; k < BGEO.ground.length; k++) {
+    const g = BGEO.ground[k];
+    if (g[4] !== 4) continue;
+    for (let j = g[1]; j < g[1] + g[3]; j++)
+      for (let i = g[0]; i < g[0] + g[2]; i++)
+        if (i >= 0 && j >= 0 && i < GW && j < GH) wet[j * GW + i] = 255;
+  }
+  /* separable box blur, O(n) per pass with a running sum — the shoreline
+     gradient is what the water shader reads for silt, weed and foam */
+  const R = 6;
+  const tmp = new Float32Array(GW * GH);
+  const blurred = new Float32Array(GW * GH);
+  for (let j = 0; j < GH; j++) {
+    let sum = 0;
+    const row = j * GW;
+    for (let i = -R; i <= R; i++) sum += wet[row + clamp(i, 0, GW - 1)];
+    for (let i = 0; i < GW; i++) {
+      tmp[row + i] = sum / (2 * R + 1);
+      sum -= wet[row + clamp(i - R, 0, GW - 1)];
+      sum += wet[row + clamp(i + R + 1, 0, GW - 1)];
+    }
+  }
+  for (let i = 0; i < GW; i++) {
+    let sum = 0;
+    for (let j = -R; j <= R; j++) sum += tmp[clamp(j, 0, GH - 1) * GW + i];
+    for (let j = 0; j < GH; j++) {
+      blurred[j * GW + i] = sum / (2 * R + 1);
+      sum -= tmp[clamp(j - R, 0, GH - 1) * GW + i];
+      sum += tmp[clamp(j + R + 1, 0, GH - 1) * GW + i];
+    }
+  }
+  for (let k = 0; k < wet.length; k++) {
+    const v = blurred[k];
+    img.data[k * 4 + 0] = v; img.data[k * 4 + 1] = v; img.data[k * 4 + 2] = v;
+    img.data[k * 4 + 3] = 255;
+  }
+  sctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(src);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.generateMipmaps = false;
+  waterU.uMask.value = tex;
+  waterU.uBox.value.set(W.ox, W.oz, GW, GH);
+  return tex;
+}

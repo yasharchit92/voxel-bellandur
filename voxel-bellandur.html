@@ -61,6 +61,19 @@
     padding:7px 10px;cursor:pointer;backdrop-filter:blur(10px);transition:.16s;}
   .pbtn:hover{color:#fff;border-color:rgba(127,208,192,.6);}
   .pbtn.on{color:#12211e;background:linear-gradient(180deg,#a9e6da,#7fd0c0);border-color:#9fe0d4;}
+  #btnstack{right:18px;top:62px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:390px;z-index:10;pointer-events:none;}
+  #btnstack #toolbar,#btnstack #presets,#btnstack #toolbar2{position:static;right:auto;top:auto;
+    display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:none;pointer-events:auto;}
+  #timebar{position:fixed;left:50%;transform:translateX(-50%);bottom:66px;display:flex;align-items:center;gap:10px;
+    padding:7px 14px;z-index:12;pointer-events:auto;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink2);}
+  #timebar #clock{color:#ffd9a8;font-weight:700;font-variant-numeric:tabular-nums;min-width:42px;}
+  #timebar #phase{opacity:.72;min-width:82px;}
+  #timebar input[type=range]{-webkit-appearance:none;appearance:none;width:190px;height:3px;border-radius:2px;
+    background:linear-gradient(90deg,#1b2b46 0%,#2f5a86 22%,#e8c48a 46%,#e08a52 54%,#2b3a6b 68%,#101828 100%);outline:none;}
+  #timebar input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;
+    background:#ffe6c2;border:1px solid #6b5a44;cursor:pointer;}
+  #btnPlay{background:none;border:none;color:#ffd9a8;font-size:10px;cursor:pointer;padding:0 2px;}
+  #btnPlay.on{color:#7fd0c0;}
 
   /* ---------- help ---------- */
   #help{left:18px;bottom:18px;padding:12px 15px;font-size:10px;letter-spacing:.5px;color:#b3a596;
@@ -135,7 +148,7 @@
   @media (max-width:860px){
     #titlebar{max-width:230px;padding:9px 12px;}
     #titlebar h1{font-size:11px;letter-spacing:1.8px;}
-    #help{display:none;} #toolbar,#presets{max-width:250px;} #north{display:none;}
+    #help{display:none;} #toolbar,#presets,#toolbar2{max-width:250px;} #north{display:none;}
   }
 </style>
 </head>
@@ -159,7 +172,8 @@
 
 <div id="stats" class="hud panel"><span><span id="fps">60</span> FPS</span><span><b id="mTri">—</b> tris</span></div>
 
-<div id="toolbar" class="hud">
+<div id="btnstack" class="hud">
+<div id="toolbar">
   <button class="btn on" id="btnMode">Orbit</button>
   <button class="btn on" id="btnBloom">Bloom</button>
   <button class="btn on" id="btnAnim">Living</button>
@@ -167,13 +181,30 @@
   <button class="btn" id="btnLabels">Labels</button>
 </div>
 
-<div id="presets" class="hud">
+<div id="presets">
   <button class="pbtn on" data-p="0">Neighbourhood</button>
   <button class="pbtn" data-p="1">Lake</button>
   <button class="pbtn" data-p="2">Outer Ring Rd</button>
   <button class="pbtn" data-p="3">Tech parks</button>
   <button class="pbtn" data-p="4">Layouts</button>
 </div>
+
+<div id="toolbar2">
+  <button class="btn" id="btnAtlas">Atlas</button>
+  <button class="btn" id="btnChase">Chase</button>
+  <button class="btn" id="btnSound">Sound</button>
+  <button class="btn" id="btnCard">Postcard</button>
+</div>
+</div>
+
+<div id="timebar" class="hud panel">
+  <button id="btnPlay" class="k" title="run the day">▶</button>
+  <span id="clock">09:24</span>
+  <input id="hour" type="range" min="0" max="24" step="0.02" value="9.4">
+  <span id="phase">afternoon</span>
+</div>
+
+
 
 <div id="help" class="hud panel">
   <h2>Controls</h2>
@@ -182,7 +213,7 @@
   <div class="row"><span><span class="k">W</span><span class="k">A</span><span class="k">S</span><span class="k">D</span></span><span>Free-fly · <span class="k">Q</span><span class="k">E</span> down / up</span></div>
   <div class="row"><span><span class="k">←</span><span class="k">→</span><span class="k">↑</span><span class="k">↓</span></span><span>Look (fly mode)</span></div>
   <div class="row"><span><span class="k">1</span>–<span class="k">5</span></span><span>Camera presets</span></div>
-  <div class="hint"><span class="k">C</span> orbit ⇄ fly · <span class="k">T</span> day ⇄ evening · <span class="k">L</span> labels<br><span class="k">B</span> bloom · <span class="k">R</span> reset · <span class="k">F</span> freeze · <span class="k">H</span> hide UI</div>
+  <div class="hint"><span class="k">C</span> orbit ⇄ fly · <span class="k">T</span> day ⇄ evening · <span class="k">L</span> labels<br><span class="k">B</span> bloom · <span class="k">R</span> reset · <span class="k">F</span> freeze · <span class="k">H</span> hide UI<br><span class="k">Y</span> run the day · <span class="k">V</span> atlas · <span class="k">G</span> chase · <span class="k">M</span> sound · <span class="k">P</span> postcard</div>
 </div>
 
 <div id="north" class="hud">
@@ -2368,7 +2399,22 @@ const P = {
 
 /* --------------------------- MATERIALS + PROGRAM -------------------------- */
 const litMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+/* every emissive voxel carries a turn-on time (aOn) so the city can light up
+   progressively as the sun goes down; the intensity of the whole system rides
+   on one uniform.  This is what makes dusk feel like a wave crossing the city. */
+const NIGHT = {
+  dusk: { value: 0.0 },        /* 0 = full day, 1 = all lights on        */
+  level: { value: 0.0 },       /* overall emissive + spill brightness    */
+};
 const glowMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+glowMat.onBeforeCompile = (sh) => {
+  sh.uniforms.uDusk = NIGHT.dusk;
+  sh.vertexShader = 'attribute float aOn;\nvarying float vOn;\n' +
+    sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vOn = aOn;');
+  sh.fragmentShader = 'varying float vOn;\nuniform float uDusk;\n' +
+    sh.fragmentShader.replace('void main() {',
+      'void main() {\n  if (vOn > uDusk) discard;');
+};
 
 /* per-fragment grain so big flat surfaces (asphalt, footpaths, roofs) breathe
    without any texture file — derived from the instance colour + normal only. */
@@ -2387,50 +2433,6 @@ litMat.onBeforeCompile = (sh) => {
 
 /* water gets its own material: a depth tint, a grazing-angle sky reflection
    and a slow ripple, all computed from world position so no plate seams show  */
-const waterU = { uTime: { value: 0 }, uSun: { value: new THREE.Vector3(0.66, 0.545, 0.518).normalize() } };
-const waterMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-waterMat.onBeforeCompile = (sh) => {
-  sh.uniforms.uTime = waterU.uTime;
-  sh.uniforms.uSun = waterU.uSun;
-  sh.vertexShader = sh.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vWp;\nvarying vec3 vVd;')
-    .replace('#include <project_vertex>',
-      '#include <project_vertex>\nvWp = (instanceMatrix * vec4(position, 1.0)).xyz;\nvVd = normalize(-mvPosition.xyz);');
-  sh.fragmentShader = sh.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vWp;\nvarying vec3 vVd;\nuniform float uTime;\nuniform vec3 uSun;\n' +
-      'float hsh(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }\n' +
-      'float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);\n' +
-      '  return mix(mix(hsh(i),hsh(i+vec2(1.0,0.0)),f.x), mix(hsh(i+vec2(0.0,1.0)),hsh(i+vec2(1.0,1.0)),f.x), f.y); }')
-    .replace('#include <color_fragment>', [
-      '#include <color_fragment>',
-      /* slow drifting ripples give the surface a normal to work with */
-      'vec2 rp = vWp.xz * 0.42 + vec2(uTime * 0.030, uTime * 0.022);',
-      'rp += vn(vWp.xz * 0.09 + vec2(uTime * 0.012, -uTime * 0.010)) * 2.4;',
-      'float e = 0.35;',
-      'float n0 = vn(rp), nx = vn(rp + vec2(e, 0.0)), nz = vn(rp + vec2(0.0, e));',
-      'float n1 = vn(rp * 2.7 + 13.0), nx1 = vn(rp * 2.7 + vec2(e * 2.7, 0.0) + 13.0), nz1 = vn(rp * 2.7 + vec2(0.0, e * 2.7) + 13.0);',
-      'vec3 N = normalize(vec3((n0 - nx) * 1.5 + (n1 - nx1) * 0.55, 1.0, (n0 - nz) * 1.5 + (n1 - nz1) * 0.55));',
-      'vec3 V = normalize(cameraPosition - vWp);',
-      
-      /* depth tint from a second, larger noise */
-      'float d = vn(vWp.xz * 0.028) * 0.66 + vn(vWp.xz * 0.095) * 0.34;',
-      'vec3 shallowC = vec3(0.300, 0.455, 0.470);',
-      'vec3 deepC    = vec3(0.120, 0.245, 0.290);',
-      'vec3 wc = mix(shallowC, deepC, smoothstep(0.20, 0.88, d));',
-      /* sky reflection at grazing angles: this is what makes it read as water */
-      'float fres = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.2);',
-      'vec3 skyC = vec3(0.660, 0.780, 0.860);',
-      'wc = mix(wc, skyC, clamp(fres * 1.25, 0.0, 0.90));',
-      /* sun glitter on the ripple normals */
-      'vec3 R = reflect(-V, N);',
-      'float spec = pow(max(dot(R, normalize(uSun)), 0.0), 42.0);',
-      'wc += vec3(1.0, 0.965, 0.895) * spec * 2.2;',
-      'float spec2 = pow(max(dot(R, normalize(uSun)), 0.0), 8.0);',
-      'wc += vec3(0.95, 0.90, 0.82) * spec2 * 0.07;',
-      'diffuseColor.rgb = wc;',
-    ].join('\n'));
-};
-
 /* --------------------------- INSTANCED BOX BUILDER ------------------------ */
 class Builder {
   constructor(withAO) {
@@ -2438,6 +2440,9 @@ class Builder {
     this.sx = []; this.sy = []; this.sz = [];
     this.cr = []; this.cg = []; this.cb = [];
     this.rot = [];
+    this.on = [];              /* per-instance turn-on time (0..1) */
+    this.onDefault = 0.55;
+    this.onJitter = 0.16;
     this.n = 0;
     this.ao = withAO !== false;
     this.grid = this.ao ? new Map() : null;
@@ -2448,6 +2453,7 @@ class Builder {
     this.sx.push(sx); this.sy.push(sy); this.sz.push(sz);
     this.cr.push(col[0]); this.cg.push(col[1]); this.cb.push(col[2]);
     this.rot.push(0);
+    this.on.push(clamp(this.onDefault + rr(-this.onJitter, this.onJitter), 0.0, 1.0));
     this.n++;
     return this;
   }
@@ -2524,6 +2530,11 @@ class Builder {
       mesh.setColorAt(i, col);
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (opts.fade) {
+      const on = new Float32Array(n);
+      for (let i = 0; i < n; i++) on[i] = this.on[i] === undefined ? 0 : this.on[i];
+      mesh.geometry.setAttribute('aOn', new THREE.InstancedBufferAttribute(on, 1));
+    }
     mesh.castShadow = opts.cast !== false;
     mesh.receiveShadow = opts.receive !== false;
     mesh.frustumCulled = false;
@@ -2573,22 +2584,61 @@ const skyU = {
   cMid: { value: new THREE.Color(0x9dc9dd) },
   cBot: { value: new THREE.Color(0xd8d2c2) },
   sunDir: { value: new THREE.Vector3(0.66, 0.545, 0.518).normalize() },
+  uTime: { value: 0 },
+  uCloud: { value: 0.52 },
+  uSunI: { value: 1.0 },
+  uNight: { value: 0.0 },
 };
 (function makeSky() {
-  const geo = new THREE.SphereGeometry(3000, 32, 20);
+  const geo = new THREE.SphereGeometry(3000, 48, 28);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
     uniforms: skyU,
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: [
-      'varying vec3 vDir; uniform vec3 cTop, cMid, cBot, sunDir;',
+      'varying vec3 vDir;',
+      'uniform vec3 cTop, cMid, cBot, sunDir;',
+      'uniform float uTime, uCloud, uSunI, uNight;',
+      'float hsh(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }',
+      'float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);',
+      '  return mix(mix(hsh(i),hsh(i+vec2(1.0,0.0)),f.x), mix(hsh(i+vec2(0.0,1.0)),hsh(i+vec2(1.0,1.0)),f.x), f.y); }',
+      'float fbm(vec2 p){ float a=0.5, s=0.0; for(int i=0;i<5;i++){ s+=a*vn(p); p=p*2.03+vec2(1.7,9.2); a*=0.5; } return s; }',
       'void main(){',
-      '  float h = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);',
+      '  vec3 dir = normalize(vDir);',
+      '  float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);',
       '  vec3 col = mix(cBot, cMid, smoothstep(0.44, 0.63, h));',
       '  col = mix(col, cTop, smoothstep(0.60, 0.99, h));',
-      '  float s = max(dot(normalize(vDir), normalize(sunDir)), 0.0);',
-      '  col += vec3(1.0, 0.93, 0.76) * pow(s, 24.0) * 0.42;',
-      '  col += vec3(1.0, 0.95, 0.84) * pow(s, 3.0) * 0.09;',
+      /* --- stars: only once the sky is deep --- */
+      '  float starMask = smoothstep(0.62, 0.95, dir.y) * uNight;',
+      '  if (starMask > 0.01) {',
+      '    vec2 sp = dir.xz / max(abs(dir.y), 0.05) * 34.0;',
+      '    float st = pow(hsh(floor(sp)), 46.0) * 1.6;',
+      '    col += vec3(0.86, 0.90, 1.0) * st * starMask;',
+      '  }',
+      /* --- cumulus: projected onto a plane above the camera, lit by the sun --- */
+      '  float up = max(dir.y, 0.03);',
+      '  vec2 cp = dir.xz / up * 1.55 + vec2(uTime * 0.0040, uTime * 0.0026);',
+      '  float c1 = fbm(cp * 0.34);',
+      '  float c2 = fbm(cp * 0.34 + vec2(2.7, -1.4) + fbm(cp * 0.12) * 0.75);',
+      '  float dens = c2 * 0.74 + c1 * 0.36;',
+      '  float covT = mix(0.52, 0.24, uCloud);',
+      '  float cl = smoothstep(covT, covT + 0.15, dens);',
+      '  cl *= smoothstep(0.010, 0.13, dir.y);',
+      '  float sunAmt = max(dot(dir, normalize(sunDir)), 0.0);',
+      '  float lit = smoothstep(0.06, 0.66, c2);',
+      '  vec3 cloudCol = mix(vec3(0.50, 0.54, 0.60), vec3(1.02, 1.00, 0.97), lit);',
+      '  cloudCol = mix(cloudCol, vec3(1.0, 0.88, 0.72), pow(sunAmt, 6.0) * 0.75 * uSunI);',
+      '  cloudCol *= mix(0.70, 1.0, smoothstep(0.02, 0.55, dir.y));',
+      '  cloudCol *= mix(0.74, 1.0, uSunI);',
+      '  col = mix(col, cloudCol, cl * 0.94);',
+      /* --- sun disc + halo, fading out under the horizon --- */
+      '  float s = max(dot(dir, normalize(sunDir)), 0.0);',
+      '  float above = smoothstep(-0.10, 0.06, normalize(sunDir).y);',
+      '  col += vec3(1.0, 0.93, 0.76) * pow(s, 900.0) * 1.6 * above;',
+      '  col += vec3(1.0, 0.93, 0.76) * pow(s, 24.0) * 0.42 * uSunI;',
+      '  col += vec3(1.0, 0.95, 0.84) * pow(s, 3.0) * 0.10 * uSunI;',
+      /* --- haze band hugging the horizon --- */
+      '  col = mix(col, cBot * 1.02, smoothstep(0.06, -0.03, dir.y) * 0.55);',
       '  gl_FragColor = vec4(col, 1.0);',
       '}'].join('\n'),
   });
@@ -2676,53 +2726,212 @@ const vw = new Builder(false);   /* water surface */
 const anim = [];                 /* per-frame updaters            */
 const ui = { labels: [], showLabels: false };
 
-/* ------------------------------- DAY / NIGHT ----------------------------- */
+/* ------------------------------- SUN & SKY ------------------------------- */
+/* One parameter drives everything: the hour.  Sun position, light colour,
+   sky gradient, fog, cloud cover, bloom and the fraction of the city whose
+   lights are on are all read off this table and interpolated. */
+const SKYKEYS = [
+  { h: 4.4,  el: -24, az: 300, sun: 0x8fa8d8, sunI: 0.00, hs: 0x2b3350, hg: 0x1a1714, hi: 0.16, amb: 0.045,
+    top: 0x070c1b, mid: 0x0f1930, bot: 0x1a2340, fog: 0x0f1626, fn: 700, ff: 2200, bl: 0.85, th: 0.70, cl: 0.22 },
+  { h: 6.1,  el: 3,   az: 103, sun: 0xffab72, sunI: 0.22, hs: 0x6e7ea8, hg: 0x3c312b, hi: 0.22, amb: 0.06,
+    top: 0x28406e, mid: 0xa5837d, bot: 0xf2c096, fog: 0xa8968f, fn: 900, ff: 3000, bl: 0.62, th: 0.78, cl: 0.44 },
+  { h: 7.9,  el: 19,  az: 113, sun: 0xffe2b6, sunI: 0.72, hs: 0xbcd4e6, hg: 0x6d5a3f, hi: 0.30, amb: 0.08,
+    top: 0x3573b8, mid: 0x9dc0d4, bot: 0xd9d3c2, fog: 0xd2d6cc, fn: 1500, ff: 4600, bl: 0.20, th: 1.03, cl: 0.52 },
+  { h: 12.5, el: 63,  az: 176, sun: 0xfff6e4, sunI: 0.95, hs: 0xcfe4f2, hg: 0x7a6040, hi: 0.34, amb: 0.09,
+    top: 0x2f74bd, mid: 0x9ec2d6, bot: 0xd8d2c2, fog: 0xd0d4cc, fn: 1700, ff: 5000, bl: 0.18, th: 1.05, cl: 0.54 },
+  { h: 16.2, el: 25,  az: 240, sun: 0xffe6bd, sunI: 0.88, hs: 0xd6e2ea, hg: 0x8a6f4a, hi: 0.33, amb: 0.08,
+    top: 0x3a72ae, mid: 0xaabcc8, bot: 0xe8d5b6, fog: 0xd8d0bd, fn: 1500, ff: 4400, bl: 0.20, th: 1.04, cl: 0.50 },
+  { h: 18.35, el: 4,  az: 262, sun: 0xff9a5e, sunI: 0.46, hs: 0x8d90ad, hg: 0x5a4438, hi: 0.26, amb: 0.07,
+    top: 0x2c3f78, mid: 0xc07a5c, bot: 0xf0b384, fog: 0xc09a86, fn: 1000, ff: 3200, bl: 0.56, th: 0.84, cl: 0.46 },
+  { h: 19.35, el: -4, az: 270, sun: 0xff7a4a, sunI: 0.12, hs: 0x4a5680, hg: 0x2c2420, hi: 0.19, amb: 0.055,
+    top: 0x16294f, mid: 0x8a5a56, bot: 0xc98c72, fog: 0x7d6a66, fn: 800, ff: 2600, bl: 0.78, th: 0.74, cl: 0.34 },
+  { h: 21.0, el: -26, az: 296, sun: 0x93a9d4, sunI: 0.00, hs: 0x28304c, hg: 0x181512, hi: 0.15, amb: 0.045,
+    top: 0x080d1c, mid: 0x101a33, bot: 0x1b2440, fog: 0x101828, fn: 700, ff: 2200, bl: 0.86, th: 0.72, cl: 0.26 },
+];
 const TIME = {
-  t: 0,                          /* 0 = late afternoon, 1 = evening */
-  target: 0,
-  day: {
-    sunDir: new THREE.Vector3(0.66, 0.545, 0.518).normalize(),
-    sunCol: new THREE.Color(0xffeecf), sunInt: 0.90,
-    hemiSky: new THREE.Color(0xcfe4f2), hemiGnd: new THREE.Color(0x775f3f), hemiInt: 0.33,
-    ambInt: 0.08,
-    skyTop: new THREE.Color(0x2f74bd), skyMid: new THREE.Color(0x9ec2d6), skyBot: new THREE.Color(0xd8d2c2),
-    fog: new THREE.Color(0xd0d4cc), fogNear: 1050, fogFar: 2900,
-    clear: new THREE.Color(0xd2d6d0),
-  },
-  eve: {
-    sunDir: new THREE.Vector3(0.58, 0.075, 0.81).normalize(),
-    sunCol: new THREE.Color(0xffa869), sunInt: 0.34,
-    hemiSky: new THREE.Color(0x5a6a94), hemiGnd: new THREE.Color(0x342a26), hemiInt: 0.20,
-    ambInt: 0.075,
-    skyTop: new THREE.Color(0x16294f), skyMid: new THREE.Color(0xb06a4e), skyBot: new THREE.Color(0xe8a878),
-    fog: new THREE.Color(0x9c7e70), fogNear: 560, fogFar: 2000,
-    clear: new THREE.Color(0x9c7e70),
-  },
+  h: 9.4, targetH: 9.4,
+  playing: false, speed: 0.55,      /* hours per second when the day is running */
+  sunVec: new THREE.Vector3(0.66, 0.545, 0.518).normalize(),
+  el: 25, dusk: 0, night: 0,
+  key: SKYKEYS[4],
 };
-function applyTime(t) {
-  TIME.t = t;
-  const a = TIME.day, b = TIME.eve;
-  sun.position.copy(a.sunDir.clone().lerp(b.sunDir, t)).normalize().multiplyScalar(600);
-  skyU.sunDir.value.copy(sun.position).normalize();
-  waterU.uSun.value.copy(skyU.sunDir.value);
-  sun.color.copy(a.sunCol).lerp(b.sunCol, t);
-  sun.intensity = lerp(a.sunInt, b.sunInt, t);
-  hemi.color.copy(a.hemiSky).lerp(b.hemiSky, t);
-  hemi.groundColor.copy(a.hemiGnd).lerp(b.hemiGnd, t);
-  hemi.intensity = lerp(a.hemiInt, b.hemiInt, t);
-  ambient.intensity = lerp(a.ambInt, b.ambInt, t);
-  skyU.cTop.value.copy(a.skyTop).lerp(b.skyTop, t);
-  skyU.cMid.value.copy(a.skyMid).lerp(b.skyMid, t);
-  skyU.cBot.value.copy(a.skyBot).lerp(b.skyBot, t);
-  scene.fog.color.copy(a.fog).lerp(b.fog, t);
-  scene.fog.near = lerp(a.fogNear, b.fogNear, t);
-  scene.fog.far = lerp(a.fogFar, b.fogFar, t);
-  renderer.setClearColor(a.clear.clone().lerp(b.clear, t), 1);
-  if (bloomPass) { bloomPass.strength = lerp(0.26, 0.80, t); bloomPass.threshold = lerp(1.0, 0.74, t); }
-  if (vg.mesh) vg.mesh.visible = t > 0.02;
-  for (let i = 0; i < glowSprites.length; i++) glowSprites[i].visible = t > 0.05;
-  if (ui.onTime) ui.onTime(t);
+function _k(prop, a, b, t) {
+  if (typeof a[prop] === 'number') return lerp(a[prop], b[prop], t);
+  return a[prop].clone().lerp(b[prop], t);
 }
+function sunVecFor(elDeg, azDeg) {
+  const el = elDeg * Math.PI / 180, az = azDeg * Math.PI / 180;
+  return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)).normalize();
+}
+function applyHour(h) {
+  TIME.h = ((h % 24) + 24) % 24;
+  const n = SKYKEYS.length;
+  let i0 = n - 1, i1 = 0;
+  for (let i = 0; i < n; i++) {
+    const hn = SKYKEYS[(i + 1) % n].h + (i + 1 >= n ? 24 : 0);
+    const hi = SKYKEYS[i].h;
+    const hh = TIME.h < SKYKEYS[0].h ? TIME.h + 24 : TIME.h;
+    if (hh >= hi && hh < hn) { i0 = i; i1 = (i + 1) % n; break; }
+  }
+  const A = SKYKEYS[i0], B = SKYKEYS[i1];
+  let span = B.h - A.h; if (span <= 0) span += 24;
+  let into = TIME.h - A.h; if (into < 0) into += 24;
+  const t = clamp(span > 0 ? into / span : 0, 0, 1);
+  TIME.key = A;
+  const el = lerp(A.el, B.el, t), az = lerp(A.az, B.az, t);
+  TIME.el = el;
+  TIME.sunVec.copy(sunVecFor(el, az));
+  sun.position.copy(TIME.sunVec).multiplyScalar(600);
+  skyU.sunDir.value.copy(TIME.sunVec);
+  waterU.uSun.value.copy(TIME.sunVec);
+  const sunI = lerp(A.sunI, B.sunI, t);
+  sun.color.setHex(A.sun).lerp(new THREE.Color(B.sun), t);
+  sun.intensity = sunI;
+  sun.castShadow = sunI > 0.06;
+  hemi.color.setHex(A.hs).lerp(new THREE.Color(B.hs), t);
+  hemi.groundColor.setHex(A.hg).lerp(new THREE.Color(B.hg), t);
+  hemi.intensity = lerp(A.hi, B.hi, t);
+  ambient.intensity = lerp(A.amb, B.amb, t);
+  skyU.cTop.value.setHex(A.top).lerp(new THREE.Color(B.top), t);
+  skyU.cMid.value.setHex(A.mid).lerp(new THREE.Color(B.mid), t);
+  skyU.cBot.value.setHex(A.bot).lerp(new THREE.Color(B.bot), t);
+  scene.fog.color.setHex(A.fog).lerp(new THREE.Color(B.fog), t);
+  scene.fog.near = lerp(A.fn, B.fn, t);
+  scene.fog.far = lerp(A.ff, B.ff, t);
+  renderer.setClearColor(scene.fog.color, 1);
+  skyU.uCloud.value = lerp(A.cl, B.cl, t);
+  skyU.uSunI.value = clamp(sunI / 0.9, 0, 1.3);
+  waterU.uSunI.value = clamp(sunI / 0.9, 0, 1.3);
+  waterU.uLight.value = clamp(hemi.intensity * 2.0 + sunI * 0.75 + ambient.intensity, 0.18, 1.0);
+  sun.shadow.needsUpdate = true;      /* the light moved: refresh the shadow map now */
+  if (bloomPass) {
+    bloomPass.strength = lerp(A.bl, B.bl, t);
+    bloomPass.threshold = lerp(A.th, B.th, t);
+  }
+  /* how far into "the lights are on" we are: driven by the sun being down */
+  const dusk = 1 - smoothstep(-3.0, 13.0, el);
+  TIME.dusk = dusk;
+  TIME.night = smoothstep(0.45, 0.95, dusk);
+  NIGHT.dusk.value = Math.max(0.001, dusk);
+  NIGHT.level.value = dusk;
+  skyU.uNight.value = TIME.night;
+  if (vg.mesh) vg.mesh.visible = dusk > 0.02;
+  if (typeof spill !== 'undefined' && spill.mat) {
+    spill.mat.opacity = 0.62 * NIGHT.level.value;
+    spill.mesh.visible = NIGHT.level.value > 0.02;
+  }
+  for (let i = 0; i < glowSprites.length; i++) glowSprites[i].visible = dusk > 0.05;
+  if (ui.onTime) ui.onTime(h);
+}
+/* kept for compatibility: t in 0..1 maps across the golden hour into night */
+function applyTime(t) { applyHour(lerp(9.4, 20.4, clamp(t, 0, 1))); }
+
+
+/* ============================================================================
+   WATER
+   ----------------------------------------------------------------------------
+   The lake is 1.5 km2 of the frame, so it gets a real shader: two drifting
+   ripple octaves plus a travelling gust give it a normal; a sky-gradient
+   reflection with proper Fresnel makes it mirror the actual sky; a blurred
+   lake mask grows silt, weed and a foam band along the OSM shoreline; and a
+   narrow specular lobe scatters the sun into a glitter path.
+   ============================================================================ */
+
+const waterU = {
+  uTime: { value: 0 },
+  uSun: { value: new THREE.Vector3(0.66, 0.545, 0.518).normalize() },
+  uSunI: { value: 1.0 },
+  uLight: { value: 1.0 },
+  uMask: { value: null },
+  uBox: { value: new THREE.Vector4(0, 0, 1, 1) },
+};
+
+/* the water is self-lit: the shader models sun + sky + depth itself, so it must
+   not be multiplied by the scene lights (a Lambert water goes black at dusk,
+   which is the opposite of what dusk does to a lake) */
+const waterMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+waterMat.onBeforeCompile = (sh) => {
+  sh.uniforms.uTime = waterU.uTime;
+  sh.uniforms.uSun = waterU.uSun;
+  sh.uniforms.uSunI = waterU.uSunI;
+  sh.uniforms.uLight = waterU.uLight;
+  sh.uniforms.uMask = waterU.uMask;
+  sh.uniforms.uBox = waterU.uBox;
+  sh.uniforms.cTop = skyU.cTop;
+  sh.uniforms.cMid = skyU.cMid;
+  sh.uniforms.cBot = skyU.cBot;
+  sh.uniforms.uNight = skyU.uNight;
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWp;\nvarying vec3 vVd;')
+    .replace('#include <project_vertex>',
+      '#include <project_vertex>\nvWp = (instanceMatrix * vec4(position, 1.0)).xyz;\nvVd = normalize(-mvPosition.xyz);');
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vWp;\nvarying vec3 vVd;\n' +
+      'uniform float uTime; uniform float uSunI; uniform float uLight; uniform vec3 uSun;\n' +
+      'uniform vec3 cTop; uniform vec3 cMid; uniform vec3 cBot; uniform float uNight;\n' +
+      'uniform sampler2D uMask; uniform vec4 uBox;\n' +
+      'float hsh(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }\n' +
+      'float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);\n' +
+      '  return mix(mix(hsh(i),hsh(i+vec2(1.0,0.0)),f.x), mix(hsh(i+vec2(0.0,1.0)),hsh(i+vec2(1.0,1.0)),f.x), f.y); }\n' +
+      'vec3 skyAt(vec3 d){\n' +
+      '  float h = clamp(d.y * 0.5 + 0.5, 0.0, 1.0);\n' +
+      '  vec3 c = mix(cBot, cMid, smoothstep(0.44, 0.63, h));\n' +
+      '  return mix(c, cTop, smoothstep(0.60, 0.99, h));\n' +
+      '}')
+    .replace('#include <color_fragment>', [
+      '#include <color_fragment>',
+      /* ---- ripples: two low-frequency octaves drive the reflection (smooth,
+         so it never speckles at distance) and a fine octave drives the glitter */
+      'vec2 rp = vWp.xz * 0.30 + vec2(uTime * 0.024, uTime * 0.017);',
+      'rp += vn(vWp.xz * 0.07 + vec2(uTime * 0.010, -uTime * 0.008)) * 2.2;',
+      'float gust = 0.6 + 0.4 * sin(dot(vWp.xz, vec2(0.016, 0.010)) - uTime * 0.30);',
+      'float e = 0.5;',
+      'float n0 = vn(rp), nx = vn(rp + vec2(e, 0.0)), nz = vn(rp + vec2(0.0, e));',
+      'float n1 = vn(rp * 2.3 + 13.0), nx1 = vn(rp * 2.3 + vec2(e * 2.3, 0.0) + 13.0), nz1 = vn(rp * 2.3 + vec2(0.0, e * 2.3) + 13.0);',
+      'float n2 = vn(rp * 6.4 - 4.0), nx2 = vn(rp * 6.4 + vec2(e * 6.4, 0.0) - 4.0), nz2 = vn(rp * 6.4 + vec2(0.0, e * 6.4) - 4.0);',
+      'vec3 Nl = normalize(vec3(((n0 - nx) * 0.62 + (n1 - nx1) * 0.26) * gust, 1.7,',
+      '                          ((n0 - nz) * 0.62 + (n1 - nz1) * 0.26) * gust));',
+      'vec3 Nd = normalize(vec3((n2 - nx2) * 0.55, 1.0, (n2 - nz2) * 0.55));',
+      'vec3 V = normalize(cameraPosition - vWp);',
+      'float camDist = length(cameraPosition - vWp);',
+      'float fade = clamp(1.0 - camDist / 620.0, 0.06, 1.0);',
+      'vec3 Nref = normalize(mix(vec3(0.0, 1.0, 0.0), Nl, fade));',
+      'vec3 Nglit = normalize(Nref + (Nd - vec3(0.0, 1.0, 0.0)) * 0.85 * fade);',
+
+      /* ---- water body: turbid shallows, deep middle ---- */
+      'float d = vn(vWp.xz * 0.028) * 0.66 + vn(vWp.xz * 0.095) * 0.34;',
+      'vec3 shallowC = vec3(0.255, 0.370, 0.335);',
+      'vec3 deepC    = vec3(0.075, 0.175, 0.215);',
+      'vec3 wc = mix(shallowC, deepC, smoothstep(0.20, 0.88, d)) * (0.16 + 0.92 * uLight);',
+
+      /* ---- shoreline: silt, weed and foam from the blurred lake mask ---- */
+      'vec2 muv = (vWp.xz - uBox.xy) / uBox.zw;',
+      'float m = texture2D(uMask, muv).r;',
+      'float shore = smoothstep(0.18, 0.55, m) * (1.0 - smoothstep(0.55, 0.80, m));',
+      'wc = mix(wc, vec3(0.215, 0.255, 0.180) * (0.20 + 0.85 * uLight), shore * 0.75);',
+      'float foamN = vn(vWp.xz * 1.6 + vec2(uTime * 0.05, -uTime * 0.04));',
+      'float foam = smoothstep(0.34, 0.05, m) * smoothstep(0.35, 0.75, foamN + 0.25) * 0.9;',
+      'wc += vec3(0.50, 0.52, 0.47) * foam * (0.20 + 0.80 * uLight);',
+
+      /* ---- sky reflection ---- */
+      'vec3 R = reflect(-V, Nref);',
+      'float fres = 0.03 + 0.97 * pow(1.0 - clamp(dot(Nref, V), 0.0, 1.0), 5.0);',
+      'vec3 skyRefl = skyAt(R) * vec3(0.90, 0.965, 1.0);',
+      'wc = mix(wc, skyRefl, clamp(fres * 0.86, 0.0, 0.78));',
+
+      /* ---- sun glitter: a tight lobe on the fine ripples ---- */
+      'vec3 L = normalize(uSun);',
+      'vec3 Rg = reflect(-V, Nglit);',
+      'float sd = max(dot(Rg, L), 0.0);',
+      'float glint = pow(sd, 300.0) * 2.4 + pow(sd, 70.0) * 0.14 + pow(sd, 14.0) * 0.02;',
+      'float sparkle = smoothstep(0.45, 0.95, vn(vWp.xz * 2.6 + vec2(uTime * 0.35, uTime * 0.28)));',
+      'wc += vec3(1.0, 0.94, 0.83) * glint * uSunI * (0.30 + 0.70 * sparkle) * step(0.0, L.y) * fade;',
+      'wc += vec3(0.55, 0.42, 0.28) * shore * uSunI * 0.10;',
+      /* --- at night the shoreline picks up the city's own light --- */
+      'wc += vec3(0.62, 0.44, 0.24) * shore * uNight * 0.42;',
+      'diffuseColor.rgb = wc;',
+      ].join('\n'));
+};
 
 
 /* ============================================================================
@@ -2880,6 +3089,65 @@ function buildTerrain() {
       if (terrain.shore.length < 4000) terrain.shore.push([x, z, near]);
     }
   }
+}
+
+/* ---------------------------------------------------------------------------
+   LAKE MASK — a blurred occupancy texture of the lake, handed to the water
+   shader so it can grow silt, weed and a foam band along the real shoreline
+   instead of an invented one.
+   ------------------------------------------------------------------------- */
+function buildWaterMask() {
+  const GW = W.w, GH = W.h;
+  const src = document.createElement('canvas');
+  src.width = GW; src.height = GH;
+  const sctx = src.getContext('2d');
+  const img = sctx.createImageData(GW, GH);
+  const wet = new Float32Array(GW * GH);
+  for (let k = 0; k < BGEO.ground.length; k++) {
+    const g = BGEO.ground[k];
+    if (g[4] !== 4) continue;
+    for (let j = g[1]; j < g[1] + g[3]; j++)
+      for (let i = g[0]; i < g[0] + g[2]; i++)
+        if (i >= 0 && j >= 0 && i < GW && j < GH) wet[j * GW + i] = 255;
+  }
+  /* separable box blur, O(n) per pass with a running sum — the shoreline
+     gradient is what the water shader reads for silt, weed and foam */
+  const R = 6;
+  const tmp = new Float32Array(GW * GH);
+  const blurred = new Float32Array(GW * GH);
+  for (let j = 0; j < GH; j++) {
+    let sum = 0;
+    const row = j * GW;
+    for (let i = -R; i <= R; i++) sum += wet[row + clamp(i, 0, GW - 1)];
+    for (let i = 0; i < GW; i++) {
+      tmp[row + i] = sum / (2 * R + 1);
+      sum -= wet[row + clamp(i - R, 0, GW - 1)];
+      sum += wet[row + clamp(i + R + 1, 0, GW - 1)];
+    }
+  }
+  for (let i = 0; i < GW; i++) {
+    let sum = 0;
+    for (let j = -R; j <= R; j++) sum += tmp[clamp(j, 0, GH - 1) * GW + i];
+    for (let j = 0; j < GH; j++) {
+      blurred[j * GW + i] = sum / (2 * R + 1);
+      sum -= tmp[clamp(j - R, 0, GH - 1) * GW + i];
+      sum += tmp[clamp(j + R + 1, 0, GH - 1) * GW + i];
+    }
+  }
+  for (let k = 0; k < wet.length; k++) {
+    const v = blurred[k];
+    img.data[k * 4 + 0] = v; img.data[k * 4 + 1] = v; img.data[k * 4 + 2] = v;
+    img.data[k * 4 + 3] = 255;
+  }
+  sctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(src);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.generateMipmaps = false;
+  waterU.uMask.value = tex;
+  waterU.uBox.value.set(W.ox, W.oz, GW, GH);
+  return tex;
 }
 
 
@@ -3109,6 +3377,11 @@ function paintJunctions() {
 /* ----------------------------------------------------------- lane graph */
 function buildLaneGraph() {
   const edges = laneGraph.edges, atNode = laneGraph.atNode;
+  /* endpoints are snapped to a 3-voxel lattice so that different OSM ways that
+     meet at a junction share a node — otherwise there is no graph, just a pile
+     of disconnected road segments and nothing can ever turn or queue */
+  const keyOf = (p) => (Math.round(p[0] / 3) + 4096) * 8192 + (Math.round(p[1] / 3) + 4096);
+  laneGraph.atIn = {};
   for (let k = 0; k < ROADS.length; k++) {
     const r = ROADS[k];
     if (r.cls > 6 || r.len < 2.5) continue;
@@ -3119,12 +3392,13 @@ function buildLaneGraph() {
       const pts = sgn > 0 ? r.pts.slice() : r.pts.slice().reverse();
       const e = {
         road: r, sgn: sgn, pts: pts, len: r.len, lanes: nLanes,
-        a: sgn > 0 ? r.idx[0] : r.idx[r.idx.length - 1],
-        b: sgn > 0 ? r.idx[r.idx.length - 1] : r.idx[0],
+        a: keyOf(pts[0]),
+        b: keyOf(pts[pts.length - 1]),
         cls: r.cls,
       };
       edges.push(e);
       (atNode[e.a] || (atNode[e.a] = [])).push(e);
+      (laneGraph.atIn[e.b] || (laneGraph.atIn[e.b] = [])).push(e);
     }
   }
   /* per-edge speed limits, derived from class only */
@@ -3176,6 +3450,65 @@ function wallPalette(cls, lv) {
   }
 }
 
+/* --------------------------------------------------------- plant deck (big roofs) */
+/* A 24 x 40 m campus roof is a fifth of an aerial frame; leaving it as a blank
+   slab is what makes a generated city read as generated.  Real ones are covered
+   in condenser banks, lift overruns, plant rooms, solar rows and water tanks. */
+function plantDeck(x0, x1, z0, z1, y, w, d) {
+  const area = w * d;
+  if (area < 11) return;
+  const step = 1.5;
+  const cols = clamp(Math.floor(w / step), 2, 7);
+  const rows = clamp(Math.floor(d / (step * 1.4)), 1, 4);
+  const kind = rnd();
+  if (kind < 0.34) {
+    /* condenser bank: rows of identical grey boxes */
+    for (let r = 0; r < rows; r++) {
+      const cz2 = lerp(z0 + 0.9, z1 - 0.9, rows === 1 ? 0.5 : r / (rows - 1));
+      for (let c = 0; c < cols; c++) {
+        const cx2 = lerp(x0 + 0.8, x1 - 0.8, cols === 1 ? 0.5 : c / (cols - 1));
+        const s2 = 0.62;
+        vb.blk(cx2 - s2 / 2, cx2 + s2 / 2, y + 0.02, y + 0.30, cz2 - s2 / 2, cz2 + s2 / 2, jitC(asCol(P.steel), 0.10));
+      }
+    }
+  } else if (kind < 0.58) {
+    /* solar array: a regular grid of dark panels — unmistakably Indian tech park */
+    const pw = Math.min(1.05, (w - 1.6) / 3), pd = 0.62;
+    for (let r = 0; r < rows + 1; r++) {
+      const cz2 = lerp(z0 + 0.8, z1 - 0.8, (rows === 0 ? 0.5 : r / rows));
+      for (let c = 0; c < cols; c++) {
+        const cx2 = lerp(x0 + 1.0, x1 - 1.0, cols === 1 ? 0.5 : c / Math.max(1, cols - 1));
+        vb.blk(cx2 - pw / 2, cx2 + pw / 2, y + 0.05, y + 0.20, cz2 - pd / 2, cz2 + pd / 2, jitC(SOLAR_C, 0.07));
+        vb.blk(cx2 - pw / 2, cx2 + pw / 2, y + 0.005, y + 0.05, cz2 - 0.03, cz2 + 0.03, asCol(P.steel));
+      }
+    }
+  } else {
+    /* plant room + lift overruns + tanks */
+    const pw = Math.min(w * 0.34, 2.4), pd = Math.min(d * 0.30, 2.0);
+    const px = lerp(x0 + pw * 0.7, x1 - pw * 0.7, rnd());
+    const pz = lerp(z0 + pd * 0.7, z1 - pd * 0.7, rnd());
+    vb.blk(px - pw / 2, px + pw / 2, y, y + rr(0.45, 0.85), pz - pd / 2, pz + pd / 2, jitC(asCol(P.wallPale), 0.05));
+    for (let k = 0; k < 2; k++) {
+      const lx = lerp(x0 + 0.7, x1 - 0.7, rnd()), lz = lerp(z0 + 0.7, z1 - 0.7, rnd());
+      vb.blk(lx - 0.34, lx + 0.34, y, y + 0.42, lz - 0.34, lz + 0.34, jitC(asCol(P.concreteDk), 0.05));
+    }
+    for (let k = 0; k < 3; k++) {
+      const tx = lerp(x0 + 0.6, x1 - 0.6, rnd()), tz = lerp(z0 + 0.6, z1 - 0.6, rnd()), s3 = rr(0.34, 0.5);
+      vb.blk(tx - s3 / 2, tx + s3 / 2, y + 0.10, y + 0.16, tz - s3 / 2, tz + s3 / 2, asCol(P.steel));
+      vb.blk(tx - s3 / 2, tx + s3 / 2, y + 0.16, y + 0.16 + s3 * 1.1, tz - s3 / 2, tz + s3 / 2, jitC(TANK_C, 0.1));
+      buildingStats.tanks++;
+    }
+  }
+  /* weathered patches: breaks the single flat slab colour */
+  for (let k = 0; k < 3; k++) {
+    const pw2 = rr(0.8, Math.max(1.1, w * 0.45)), pd2 = rr(0.8, Math.max(1.1, d * 0.45));
+    const px2 = rr(x0 + 0.2, Math.max(x0 + 0.3, x1 - pw2 - 0.2));
+    const pz2 = rr(z0 + 0.2, Math.max(z0 + 0.3, z1 - pd2 - 0.2));
+    vb.blk(px2, px2 + pw2, y + 0.008, y + 0.022, pz2, pz2 + pd2,
+      jitC(asCol(chance(0.5) ? P.concrete : P.concreteDk), 0.06));
+  }
+}
+
 /* ------------------------------------------------------------ roof clutter */
 function roofKit(x0, x1, z0, z1, y, w, d, big) {
   const area = (x1 - x0) * (z1 - z0);
@@ -3189,11 +3522,22 @@ function roofKit(x0, x1, z0, z1, y, w, d, big) {
       vb.blk(tx - s / 2, tx + s / 2, y + 0.14, y + 0.20, tz - s / 2, tz + s / 2, asCol(P.steel));
       vb.blk(tx - s / 2, tx + s / 2, y + 0.20, y + 0.20 + s * 1.15, tz - s / 2, tz + s / 2, jitC(TANK_C, 0.12));
       buildingStats.tanks++;
-    } else if (chance(0.5) && big) {
+    } else if (chance(big ? 0.55 : 0.18)) {
       /* solar array */
       const sw = 0.5, sd = 0.36;
       vb.blk(tx - sw / 2, tx + sw / 2, y + 0.14, y + 0.2, tz - sd / 2, tz + sd / 2, asCol(P.steel));
       vb.blk(tx - sw / 2, tx + sw / 2, y + 0.2, y + 0.26, tz - sd / 2, tz + sd / 2, jitC(SOLAR_C, 0.1));
+    } else if (chance(0.55)) {
+      /* split AC condenser, usually against the parapet */
+      const aw = rr(0.16, 0.26), edge = chance(0.5);
+      const ax2 = edge ? tx : (chance(0.5) ? x0 + 0.25 : x1 - 0.25);
+      const az2 = edge ? (chance(0.5) ? z0 + 0.25 : z1 - 0.25) : tz;
+      vb.blk(ax2 - aw / 2, ax2 + aw / 2, y + 0.11, y + 0.11 + aw * 0.8, az2 - aw / 2, az2 + aw / 2,
+        jitC(asCol(P.steel), 0.14));
+    } else if (chance(0.30)) {
+      /* satellite dish on a stub */
+      vb.blk(tx - 0.03, tx + 0.03, y + 0.12, y + 0.34, tz - 0.03, tz + 0.03, asCol(P.steel));
+      vb.blk(tx - 0.15, tx + 0.15, y + 0.32, y + 0.40, tz - 0.10, tz + 0.10, asCol(P.white));
     } else if (chance(0.45)) {
       /* stair head / lift machine room */
       const s = rr(0.4, 0.7);
@@ -3201,9 +3545,19 @@ function roofKit(x0, x1, z0, z1, y, w, d, big) {
         jitC(asCol(P.wallPale), 0.06));
     }
   }
+  /* laundry line strung between two stubs */
+  if (w > 1.6 && d > 1.2 && chance(0.22)) {
+    const ly = y + rr(0.5, 0.8), lz = rr(z0 + 0.3, z1 - 0.3);
+    vb.blk(x0 + 0.25, x1 - 0.25, ly, ly + 0.018, lz - 0.01, lz + 0.01, asCol(P.white));
+    for (let c = 0; c < 3; c++) {
+      const cx2 = rr(x0 + 0.4, x1 - 0.4);
+      vb.blk(cx2 - 0.05, cx2 + 0.05, ly - 0.12, ly, lz - 0.02, lz + 0.02,
+        jitC(asCol(chance(0.5) ? P.wallPale : P.roofTile), 0.1));
+    }
+  }
   /* parapet ring */
   if (w >= 2 && d >= 2) {
-    const t = 0.12, h = 0.2;
+    const t = 0.12, h = rr(0.16, 0.26);
     vb.blk(x0, x1, y, y + h, z0, z0 + t, asCol(P.concreteDk));
     vb.blk(x0, x1, y, y + h, z1 - t, z1, asCol(P.concreteDk));
     vb.blk(x0, x0 + t, y, y + h, z0 + t, z1 - t, asCol(P.concreteDk));
@@ -3251,6 +3605,7 @@ function apartmentBlock(x0, x1, z0, z1, H, wall) {
     vb.blk(x0 + s, x1 - s, H, H + 0.55, z0 + s, z1 - s, jitC(asCol(P.concrete), 0.04));
   }
   roofKit(x0, x1, z0, z1, H, w, d, true);
+  plantDeck(x0, x1, z0, z1, H + 0.13, w, d);
 }
 
 /* --------------------------------------------------------- glass / office */
@@ -3291,6 +3646,7 @@ function officeBlock(x0, x1, z0, z1, H, wall) {
   if (H > 2.2) {
     vb.blk(x0 - 0.09, x1 + 0.09, H, H + 0.13, z0 - 0.09, z1 + 0.09, asCol(P.concrete));
     roofKit(x0, x1, z0, z1, H + 0.13, w, d, true);
+    plantDeck(x0, x1, z0, z1, H + 0.13, w, d);
   } else {
     roofKit(x0, x1, z0, z1, H, w, d, false);
   }
@@ -3330,6 +3686,7 @@ function houseBlock(x0, x1, z0, z1, H, wall) {
   }
   /* one warm window */
   if (chance(0.55) && H > 1.2) {
+    vg.onDefault = clamp(0.42 + rr(0, 0.44), 0, 0.97);
     const y = rr(0.55, Math.max(0.6, H - 0.35));
     if (w >= d) vg.blk(x0 + 0.2, x1 - 0.2, y, y + 0.26, z0 - 0.02, z0, asCol(P.glowWarm));
     else vg.blk(x0 - 0.02, x0, y, y + 0.26, z0 + 0.2, z1 - 0.2, asCol(P.glowWarm));
@@ -3673,7 +4030,35 @@ const VT = {
 const PED_SHIRT = [C(0xd9d5c8), C(0xc2453a), C(0x2f5f9c), C(0xe0b93f), C(0x4a7f5a), C(0x8c5a9c), C(0xe8e2d4)];
 const PED_SKIN = [C(0x8a5f3f), C(0x9a6b48), C(0x7a5236)];
 
-const traffic = { veh: [], lit: null, glow: null, dyn: false };
+const traffic = { veh: [], lit: null, glow: null, dyn: false, t: 0, signals: [], byNode: {} };
+
+/* a signalised junction is any node where two classified roads meet */
+function buildSignals() {
+  const out = [];
+  const inAt = laneGraph.atIn, outAt = laneGraph.atNode;
+  for (const key in inAt) {
+    const inn = inAt[key] || [], out_ = outAt[key] || [];
+    const total = inn.length + out_.length;
+    if (total < 3) continue;
+    let big = 0, bigIn = 0;
+    for (let i = 0; i < inn.length; i++) if (inn[i].cls <= 2) { big++; bigIn++; }
+    for (let i = 0; i < out_.length; i++) if (out_[i].cls <= 2) big++;
+    if (big < 2 || bigIn < 1) continue;
+    const e = inn[0];
+    const p = e.pts[e.pts.length - 1];
+    out.push({ node: +key, x: p[0], z: p[1], phase: rnd(), deg: total });
+  }
+  out.sort((a, b) => b.deg - a.deg);
+  traffic.signals = out.slice(0, 56);
+  traffic.byNode = {};
+  for (let i = 0; i < traffic.signals.length; i++) traffic.byNode[traffic.signals[i].node] = traffic.signals[i];
+  return traffic.signals.length;
+}
+function signalOpen(t, axis, sgn) {
+  const cyc = ((t / 44 + sgn.phase) % 1 + 1) % 1;
+  if (axis === 0) return cyc < 0.42;
+  return cyc >= 0.50 && cyc < 0.92;
+}
 const peds = { list: [], body: null, head: null };
 
 function pickVehicle(cls) {
@@ -3714,12 +4099,12 @@ function buildTraffic() {
   for (let i = 0; i < edges.length; i++) {
     const e = edges[i];
     if (e.len < 5) continue;
-    const w = e.cls === 1 ? 22 : e.cls === 2 ? 12 : e.cls === 3 ? 6 : e.cls === 4 ? 3 : e.cls === 5 ? 1.2 : 0.4;
+    const w = e.cls === 1 ? 64 : e.cls === 2 ? 26 : e.cls === 3 ? 8 : e.cls === 4 ? 3 : e.cls === 5 ? 1.0 : 0.3;
     const slots = Math.max(1, Math.floor(e.len / 8));
     for (let s = 0; s < slots; s++) cand.push([e, w]);
   }
   /* weighted sample, deterministic */
-  const N = Math.min(760, cand.length);
+  const N = Math.min(900, cand.length);
   const picked = [];
   for (let i = 0; i < N; i++) {
     let tot = 0;
@@ -3793,12 +4178,46 @@ function laneAt(v, s, out) {
 const _lane = [0, 0, 0];
 function updateTraffic(dt) {
   if (!traffic.dyn) return;
+  traffic.t += dt;
   const veh = traffic.veh;
+  const byEdge = traffic._byEdge || (traffic._byEdge = new Map());
+  byEdge.clear();
   for (let i = 0; i < veh.length; i++) {
     const v = veh[i];
-    v.s += v.vmax * dt;
+    let a = byEdge.get(v.e);
+    if (!a) { a = []; byEdge.set(v.e, a); }
+    a.push(v);
+  }
+  /* who is in front of whom, on the same edge */
+  byEdge.forEach((a) => {
+    a.sort((p, q) => p.s - q.s);
+    for (let i = 0; i < a.length; i++) a[i].leadGap = i + 1 < a.length ? a[i + 1].s - a[i].s : 1e9;
+  });
+
+  for (let i = 0; i < veh.length; i++) {
+    const v = veh[i];
+    const V = VT[v.type];
+    /* --- target speed: free flow, limited by the car ahead and by signals --- */
+    let want = v.vmax;
+    const gap = Math.max(0.4, (v.leadGap === undefined ? 1e9 : v.leadGap) - V.len * 1.35);
+    want = Math.min(want, gap * 2.2);
+    const sig = traffic.byNode[v.e.b];
+    if (sig) {
+      const dx = Math.cos(v.ang || 0), dz = Math.sin(v.ang || 0);
+      const axis = Math.abs(dx) >= Math.abs(dz) ? 0 : 1;
+      const toStop = v.e.len - v.s;
+      if (!signalOpen(traffic.t, axis, sig)) {
+        if (toStop < 3.0) want = 0;
+        else if (toStop < 16) want = Math.min(want, (toStop - 3.0) * 1.1);
+      }
+    }
+    if (v.spd === undefined) v.spd = v.vmax * rnd();
+    const acc = want < v.spd ? 9.0 : 3.2;          /* brake harder than you accelerate */
+    v.spd += clamp(want - v.spd, -acc * dt, acc * dt);
+    v.spd = Math.max(0, v.spd);
+    v.s += v.spd * dt;
+
     if (v.s > v.e.len) {
-      /* choose the next edge at the far node */
       const node = v.e.b;
       const list = laneGraph.atNode[node];
       let best = null, bestScore = -1e9;
@@ -3815,26 +4234,33 @@ function updateTraffic(dt) {
           if (score > bestScore) { bestScore = score; best = c; }
         }
       }
+      v.s = Math.max(0, v.s - v.e.len);
       v.e = best || v.e;
-      v.s = 0;
+      v.leadGap = 1e9;
       v.nL = clamp(v.e.lanes, 1, 3);
       if (v.lane >= v.nL) v.lane = v.nL - 1;
     }
     laneAt(v, v.s, _lane);
-    const V = VT[v.type];
     const rot = -_lane[2];
     const y = GROUND_H[2] || 0;
-    traffic.lit.set(i * 3 + 0, _lane[0], y + V.hb / 2, _lane[1], V.len, V.hb, V.wid, rot, v.col);
-    traffic.lit.set(i * 3 + 1, _lane[0] - Math.cos(_lane[2]) * V.len * 0.08, y + V.hb + V.ht / 2,
-      _lane[1] - Math.sin(_lane[2]) * V.len * 0.08, V.len * 0.58, V.ht, V.wid * 0.9, rot,
+    /* autorickshaws weave a little; nothing else does */
+    let wx = _lane[0], wz = _lane[1];
+    if (v.type === 'auto') {
+      const wob = Math.sin(traffic.t * 1.7 + i * 1.3) * 0.42;
+      wx += -Math.sin(_lane[2]) * wob;
+      wz += Math.cos(_lane[2]) * wob;
+    }
+    v.wx = wx; v.wz = wz; v.rot = rot; v.ang = _lane[2]; v.speed = v.spd;
+    traffic.lit.set(i * 3 + 0, wx, y + V.hb / 2, wz, V.len, V.hb, V.wid, rot, v.col);
+    traffic.lit.set(i * 3 + 1, wx - Math.cos(_lane[2]) * V.len * 0.08, y + V.hb + V.ht / 2,
+      wz - Math.sin(_lane[2]) * V.len * 0.08, V.len * 0.58, V.ht, V.wid * 0.9, rot,
       v.type === 'auto' ? asCol(P.autoCanopy) : asCol(P.glassCar));
-    traffic.lit.set(i * 3 + 2, _lane[0], y + V.hb * 0.52, _lane[1], V.len * 0.88, 0.045, V.wid * 1.02, rot,
+    traffic.lit.set(i * 3 + 2, wx, y + V.hb * 0.52, wz, V.len * 0.88, 0.045, V.wid * 1.02, rot,
       v.type === 'bus' ? asCol(P.busBlue) : asCol(P.glassCar));
-    /* head/tail lights (only visible in the evening) */
     const fx = Math.cos(_lane[2]) * V.len * 0.48, fz = Math.sin(_lane[2]) * V.len * 0.48;
-    traffic.glow.set(i * 2 + 0, _lane[0] + fx, y + V.hb * 0.5, _lane[1] + fz,
+    traffic.glow.set(i * 2 + 0, wx + fx, y + V.hb * 0.5, wz + fz,
       V.wid * 1.0, 0.16, 0.22, rot, asCol(P.glowWarm));
-    traffic.glow.set(i * 2 + 1, _lane[0] - fx, y + V.hb * 0.75, _lane[1] - fz,
+    traffic.glow.set(i * 2 + 1, wx - fx, y + V.hb * 0.75, wz - fz,
       V.wid * 0.95, 0.13, 0.18, rot, asCol(P.glowRed));
   }
   traffic.lit.commit();
@@ -3924,6 +4350,9 @@ function updatePeds(dt) {
 /* ------------------------------------------------------- street furniture */
 function streetLights() {
   let n = 0;
+  const _on = vg.onDefault;
+  vg.onDefault = 0.16;
+  vg.onJitter = 0.10;
   for (let k = 0; k < ROADS.length; k++) {
     const r = ROADS[k];
     if (r.cls > 4 || r.tunnel) continue;
@@ -3940,8 +4369,12 @@ function streetLights() {
       vb.blk(px - rx * side * 0.55, px, 1.72, 1.8, pz - rz * side * 0.55, pz, asCol(P.pole));
       vg.blk(px - rx * side * 0.72 - 0.17, px - rx * side * 0.44 + 0.17, 1.56, 1.72,
         pz - rz * side * 0.72 - 0.17, pz - rz * side * 0.44 + 0.17, asCol(P.glowWarm));
+      if (LAMPS.length < 9000) LAMPS.push({ x: px - rx * side * 0.58, z: pz - rz * side * 0.58,
+        r: r.cls === 1 ? rr(6.0, 7.6) : r.cls === 2 ? rr(5.0, 6.4) : rr(3.8, 5.2) });
     });
   }
+  vg.onDefault = _on;
+  vg.onJitter = 0.16;
   return n;
 }
 
@@ -4130,6 +4563,345 @@ function lakeLife() {
 
 
 /* ============================================================================
+   NIGHT — light on the ground
+   ----------------------------------------------------------------------------
+   Emissive voxels alone give you a dark model with bright dots on it.  What
+   makes a city at night is what the light falls on: warm pools under every
+   streetlight, a smear of headlight on the asphalt, and the whole thing
+   breathing in as the sun goes down.  All of it is one additive instanced
+   quad layer — a single extra draw call.
+   ============================================================================ */
+
+const LAMPS = [];                 /* filled by streetLights() */
+const spill = { mesh: null, cap: 0, nStatic: 0, nDyn: 0, opacity: 0 };
+
+function _spillTexture() {
+  const s = 128;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = s;
+  const g = cv.getContext('2d');
+  const grad = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  grad.addColorStop(0.00, 'rgba(255,255,255,0.95)');
+  grad.addColorStop(0.22, 'rgba(255,255,255,0.60)');
+  grad.addColorStop(0.52, 'rgba(255,255,255,0.22)');
+  grad.addColorStop(0.78, 'rgba(255,255,255,0.06)');
+  grad.addColorStop(1.00, 'rgba(255,255,255,0.0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, s, s);
+  const t = new THREE.CanvasTexture(cv);
+  t.minFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  return t;
+}
+
+const _qFlat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+const _qSpin = new THREE.Quaternion();
+const _q = new THREE.Quaternion();
+const _m4 = new THREE.Matrix4();
+const _v3 = new THREE.Vector3();
+const _sc = new THREE.Vector3();
+const _col = new THREE.Color();
+
+function buildLightSpill() {
+  const vehN = traffic.veh.length;
+  /* subsample lamps so the layer stays one cheap draw call */
+  const maxLamps = 2600;
+  const step = Math.max(1, Math.ceil(LAMPS.length / maxLamps));
+  const lamps = [];
+  for (let i = 0; i < LAMPS.length; i += step) lamps.push(LAMPS[i]);
+  const cap = lamps.length + vehN * 2;
+  if (!cap) return;
+  const mat = new THREE.MeshBasicMaterial({
+    map: _spillTexture(), transparent: true, blending: THREE.AdditiveBlending,
+    depthWrite: false, opacity: 0, side: THREE.DoubleSide, fog: true,
+  });
+  const geo = new THREE.PlaneGeometry(1, 1);
+  const mesh = new THREE.InstancedMesh(geo, mat, cap);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 4;
+  const y = (GROUND_H[2] || 0) + 0.10;
+  for (let i = 0; i < lamps.length; i++) {
+    const L = lamps[i];
+    const r = L.r || rr(4.4, 6.6);
+    _v3.set(L.x, y, L.z);
+    _sc.set(r * 2, r * 2, 1);
+    _m4.compose(_v3, _qFlat, _sc);
+    mesh.setMatrixAt(i, _m4);
+    _col.setHex(0xffb35e);
+    const k = rr(0.75, 1.0);
+    _col.multiplyScalar(k);
+    mesh.setColorAt(i, _col);
+  }
+  /* park the dynamic instances out of sight until the first update */
+  for (let i = lamps.length; i < cap; i++) {
+    _v3.set(0, -400, 0); _sc.set(0.001, 0.001, 0.001);
+    _m4.compose(_v3, _qFlat, _sc);
+    mesh.setMatrixAt(i, _m4);
+    mesh.setColorAt(i, _col.setHex(0xffffff));
+  }
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  scene.add(mesh);
+  spill.mesh = mesh;
+  spill.cap = cap;
+  spill.nStatic = lamps.length;
+  spill.mat = mat;
+}
+
+function updateLightSpill(dt) {
+  if (!spill.mesh) return;
+  const level = NIGHT.level.value;
+  spill.mat.opacity = 0.62 * level;
+  spill.mesh.visible = level > 0.02;
+  if (level <= 0.02) return;
+  const y = (GROUND_H[2] || 0) + 0.11;
+  let k = spill.nStatic;
+  const veh = traffic.veh;
+  for (let i = 0; i < veh.length && k + 1 < spill.cap; i++) {
+    const v = veh[i];
+    if (v.wx === undefined) continue;
+    const V = VT[v.type];
+    const cosR = Math.cos(v.rot), sinR = Math.sin(v.rot);
+    /* headlight: a long warm smear ahead of the vehicle */
+    _qSpin.setFromAxisAngle(new THREE.Vector3(0, 1, 0), v.rot);
+    _q.copy(_qSpin).multiply(_qFlat);
+    _v3.set(v.wx + cosR * V.len * 1.5, y, v.wz + sinR * V.len * 1.5);
+    _sc.set(V.wid * 2.6, V.len * 3.4, 1);
+    _m4.compose(_v3, _q, _sc);
+    spill.mesh.setMatrixAt(k, _m4);
+    spill.mesh.setColorAt(k, _col.setHex(0xffc078).multiplyScalar(0.55));
+    k++;
+    /* tail glow behind */
+    _v3.set(v.wx - cosR * V.len * 0.7, y, v.wz - sinR * V.len * 0.7);
+    _sc.set(V.wid * 1.9, V.len * 1.1, 1);
+    _m4.compose(_v3, _q, _sc);
+    spill.mesh.setMatrixAt(k, _m4);
+    spill.mesh.setColorAt(k, _col.setHex(0xff5a3c).multiplyScalar(0.28));
+    k++;
+  }
+  spill.nDyn = k - spill.nStatic;
+  spill.mesh.instanceMatrix.needsUpdate = true;
+  if (spill.mesh.instanceColor) spill.mesh.instanceColor.needsUpdate = true;
+}
+
+
+/* ============================================================================
+   SOUND — synthesised, no files
+   ----------------------------------------------------------------------------
+   A browser diorama that makes noise is a different thing from one that does
+   not.  Everything here is generated with WebAudio: brown-noise city rumble,
+   a wind layer, horns on a Poisson process, lake lapping when you are near the
+   water, and birds at dawn.  Nothing is fetched.
+   ============================================================================ */
+
+const AUDIO = { ctx: null, master: null, hum: null, wind: null, lap: null, on: false, user: 0, lastHorn: 0, nextHorn: 2 };
+
+function _noise(ctx, seconds, brown) {
+  const n = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.random() * 2 - 1;
+    if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; }
+    else d[i] = w * 0.6;
+  }
+  return buf;
+}
+
+function audioStart() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return false;
+  if (!AUDIO.ctx) {
+    const ctx = new AC();
+    const master = ctx.createGain();
+    master.gain.value = 0.0001;
+    master.connect(ctx.destination);
+
+    const hum = ctx.createBufferSource();
+    hum.buffer = _noise(ctx, 4, true); hum.loop = true;
+    const humLP = ctx.createBiquadFilter(); humLP.type = 'lowpass'; humLP.frequency.value = 320; humLP.Q.value = 0.6;
+    const humG = ctx.createGain(); humG.gain.value = 0.55;
+    hum.connect(humLP).connect(humG).connect(master); hum.start();
+
+    const wind = ctx.createBufferSource();
+    wind.buffer = _noise(ctx, 4, false); wind.loop = true;
+    const windBP = ctx.createBiquadFilter(); windBP.type = 'bandpass'; windBP.frequency.value = 1100; windBP.Q.value = 0.7;
+    const windG = ctx.createGain(); windG.gain.value = 0.10;
+    wind.connect(windBP).connect(windG).connect(master); wind.start();
+
+    const lap = ctx.createBufferSource();
+    lap.buffer = _noise(ctx, 3, true); lap.loop = true;
+    const lapBP = ctx.createBiquadFilter(); lapBP.type = 'bandpass'; lapBP.frequency.value = 620; lapBP.Q.value = 1.4;
+    const lapG = ctx.createGain(); lapG.gain.value = 0.0;
+    lap.connect(lapBP).connect(lapG).connect(master); lap.start();
+
+    AUDIO.ctx = ctx; AUDIO.master = master; AUDIO.hum = humG; AUDIO.wind = windG; AUDIO.lap = lapG;
+    AUDIO.humLP = humLP;
+  }
+  if (AUDIO.ctx.state !== 'running') AUDIO.ctx.resume();
+  AUDIO.on = true;
+  const t = AUDIO.ctx.currentTime;
+  AUDIO.master.gain.cancelScheduledValues(t);
+  AUDIO.master.gain.value = 0.30;
+  return true;
+}
+
+function audioStop() {
+  AUDIO.on = false;
+  if (!AUDIO.ctx) return;
+  const t = AUDIO.ctx.currentTime;
+  AUDIO.master.gain.cancelScheduledValues(t);
+  AUDIO.master.gain.value = 0.0001;
+}
+
+function _horn(ctx, when, freq, dur, gain) {
+  const o = ctx.createOscillator(), g = ctx.createGain(), bp = ctx.createBiquadFilter();
+  o.type = 'square'; o.frequency.setValueAtTime(freq, when);
+  o.frequency.setValueAtTime(freq * 1.06, when + dur * 0.4);
+  bp.type = 'bandpass'; bp.frequency.value = freq * 1.6; bp.Q.value = 1.2;
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.exponentialRampToValueAtTime(gain, when + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  o.connect(bp).connect(g).connect(AUDIO.master);
+  o.start(when); o.stop(when + dur + 0.05);
+}
+
+function _chirp(ctx, when, freq) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(freq, when);
+  o.frequency.exponentialRampToValueAtTime(freq * 1.7, when + 0.05);
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.exponentialRampToValueAtTime(0.03, when + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.11);
+  o.connect(g).connect(AUDIO.master);
+  o.start(when); o.stop(when + 0.14);
+}
+
+/* called from the render loop: mix by where you are and when it is */
+function audioTick(dt) {
+  if (!AUDIO.on || !AUDIO.ctx) return;
+  const ctx = AUDIO.ctx;
+  const camY = camera.position.y;
+  const near = clamp(1 - camY / 260, 0.15, 1);
+  const lakeD = Math.hypot(camera.position.x + 190, camera.position.z + 162);
+  const lakeNear = clamp(1 - lakeD / 260, 0, 1);
+  const busy = clamp(traffic.veh.length / 900, 0, 1);
+  AUDIO.hum.gain.setTargetAtTime(0.30 + 0.55 * near * busy, ctx.currentTime, 0.8);
+  AUDIO.humLP.frequency.setTargetAtTime(240 + 380 * near, ctx.currentTime, 0.8);
+  AUDIO.wind.gain.setTargetAtTime(0.05 + 0.13 * clamp(camY / 400, 0, 1), ctx.currentTime, 1.2);
+  AUDIO.lap.gain.setTargetAtTime(0.16 * lakeNear * (0.6 + 0.4 * Math.sin(performance.now() / 2400)), ctx.currentTime, 0.5);
+  /* horns: a Poisson process, denser low down near the big roads */
+  AUDIO.nextHorn -= dt;
+  if (AUDIO.nextHorn <= 0) {
+    AUDIO.nextHorn = rr(1.1, 4.2) / (0.4 + near);
+    const f = rr(300, 520);
+    _horn(ctx, ctx.currentTime + 0.02, f, rr(0.10, 0.30), 0.05 + 0.05 * near);
+  }
+  /* birds around dawn */
+  if (TIME.h > 5.2 && TIME.h < 7.6 && Math.random() < dt * 1.6) {
+    _chirp(ctx, ctx.currentTime + 0.02, rr(1600, 2600));
+  }
+}
+
+function audioState() {
+  return {
+    on: AUDIO.on,
+    state: AUDIO.ctx ? AUDIO.ctx.state : 'none',
+    gain: AUDIO.master ? +AUDIO.master.gain.value.toFixed(4) : 0,
+  };
+}
+
+
+/* ============================================================================
+   POSTCARD — a shareable still, rendered at 2x and captioned
+   ============================================================================ */
+
+function renderStill(scale) {
+  const W0 = window.innerWidth, H0 = window.innerHeight;
+  const w = Math.round(W0 * scale), h = Math.round(H0 * scale);
+  const prevPR = renderer.getPixelRatio();
+  const wasBloom = state.bloomOn;
+  renderer.setPixelRatio(1);
+  renderer.setSize(w, h, false);
+  if (composer) composer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  /* one clean frame */
+  if (composer && wasBloom) composer.render();
+  else renderer.render(scene, camera);
+  const url = renderer.domElement.toDataURL('image/png');
+  renderer.setPixelRatio(prevPR);
+  renderer.setSize(W0, H0, false);
+  if (composer) composer.setSize(W0, H0);
+  camera.aspect = W0 / H0;
+  camera.updateProjectionMatrix();
+  return url;
+}
+
+function postcardDataURL(scale) {
+  scale = scale || 2;
+  const shot = renderStill(scale);
+  const img = new Image();
+  /* synchronous canvas composition needs the image decoded; use the data URL
+     directly as a background fill via a 2D context drawImage after decode */
+  const cv = document.createElement('canvas');
+  const W = Math.round(window.innerWidth * scale), H = Math.round(window.innerHeight * scale);
+  const bar = Math.round(H * 0.085);
+  cv.width = W; cv.height = H + bar;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#14110e';
+  g.fillRect(0, 0, cv.width, cv.height);
+  try {
+    g.drawImage(window.__cardImg, 0, 0, W, H);
+  } catch (e) {
+    g.fillStyle = '#14110e'; g.fillRect(0, 0, W, H);
+  }
+  /* caption plate */
+  const pad = Math.round(bar * 0.42);
+  g.fillStyle = '#f3e9d6';
+  g.font = `600 ${Math.round(bar * 0.30)}px "Helvetica Neue", Arial, sans-serif`;
+  g.fillText('VOXEL BELLANDUR', pad, H + bar * 0.52);
+  g.fillStyle = '#a89b87';
+  g.font = `400 ${Math.round(bar * 0.20)}px "Helvetica Neue", Arial, sans-serif`;
+  const hh = Math.floor(TIME.h), mm = Math.round((TIME.h - hh) * 60);
+  const cap = `Bellandur Lake · Outer Ring Road · 3.26 x 2.88 km · 4 m voxels · ${String(hh).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')} · ${TIME.h > 6 && TIME.h < 18 ? 'day' : 'after dusk'}`;
+  g.fillText(cap, pad, H + bar * 0.82);
+  g.fillStyle = '#6ee0c8';
+  g.font = `600 ${Math.round(bar * 0.19)}px "Helvetica Neue", Arial, sans-serif`;
+  g.textAlign = 'right';
+  g.fillText('© OpenStreetMap contributors · ODbL 1.0', cv.width - pad, H + bar * 0.52);
+  g.fillStyle = '#8b8073';
+  g.font = `400 ${Math.round(bar * 0.18)}px "Helvetica Neue", Arial, sans-serif`;
+  g.fillText('SEED ' + SEED + ' · 2026-11-11', cv.width - pad, H + bar * 0.82);
+  return { url: cv.toDataURL('image/png'), shot: shot };
+}
+
+function savePostcard(scale) {
+  const out = postcardDataURL(scale);
+  const a = document.createElement('a');
+  a.href = out.url;
+  a.download = 'voxel-bellandur.png';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => a.remove(), 0);
+  return out.url;
+}
+
+/* the raw render is decoded into an <img> the composition step can draw */
+function prepareCardImage(scale) {
+  return new Promise((resolve) => {
+    const url = renderStill(scale || 2);
+    const img = new Image();
+    img.onload = () => { window.__cardImg = img; resolve(url); };
+    img.onerror = () => { window.__cardImg = null; resolve(url); };
+    img.src = url;
+  });
+}
+
+
+/* ============================================================================
    MAIN — assembly, controls, camera presets, labels, north indicator, loop
    ============================================================================ */
 
@@ -4144,6 +4916,14 @@ const hud = {
   btnBloom: document.getElementById('btnBloom'),
   btnAnim: document.getElementById('btnAnim'),
   btnTime: document.getElementById('btnTime'),
+  btnAtlas: document.getElementById('btnAtlas'),
+  btnChase: document.getElementById('btnChase'),
+  btnSound: document.getElementById('btnSound'),
+  btnCard: document.getElementById('btnCard'),
+  btnPlay: document.getElementById('btnPlay'),
+  hour: document.getElementById('hour'),
+  clock: document.getElementById('clock'),
+  phase: document.getElementById('phase'),
   btnLabels: document.getElementById('btnLabels'),
   modeTag: document.getElementById('modeTag'),
   loader: document.getElementById('loader'),
@@ -4257,6 +5037,9 @@ controls.update();
 /* free-fly */
 const keys = Object.create(null);
 const fly = { yaw: 0, pitch: 0, speed: 26, active: false };
+const atlas = { on: false, k: 0, target: 0, saved: null };
+const chase = { on: false, idx: 0, k: 0 };
+const FLAT = [];
 function setFly(on) {
   state.orbit = !on;
   fly.active = on;
@@ -4302,6 +5085,13 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'f') { state.frozen = !state.frozen; hud.btnAnim.classList.toggle('on', !state.frozen); }
   else if (k === 't') toggleTime();
   else if (k === 'l') toggleLabels();
+  else if (k === 'v') toggleAtlas();
+  else if (k === 'g') toggleChase();
+  else if (k === 'm') toggleSound();
+  else if (k === 'p') doPostcard();
+  else if (k === 'y') hud.btnPlay.onclick();
+  else if (k === '[' && chase.on) chase.idx = (chase.idx + traffic.veh.length - 1) % traffic.veh.length;
+  else if (k === ']' && chase.on) chase.idx = (chase.idx + 1) % traffic.veh.length;
   else if (k >= '1' && k <= '5') { setFly(false); goPreset(+k - 1); }
   if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].indexOf(k) >= 0) e.preventDefault();
 });
@@ -4334,6 +5124,39 @@ function updateFly(dt) {
   camera.lookAt(camera.position.clone().add(look));
 }
 
+/* ------------------------------------------------------------------- hash */
+/* A view is a permalink: #p=x,y,z&t=x,y,z&h=19.1&m=orbit */
+function camHash() {
+  const p = camera.position, t = controls.target;
+  return '#p=' + p.toArray().map((v) => v.toFixed(1)).join(',') +
+    '&t=' + t.toArray().map((v) => v.toFixed(1)).join(',') +
+    '&h=' + TIME.h.toFixed(2) +
+    (atlas.on ? '&m=atlas' : chase.on ? '&m=chase' : fly.active ? '&m=fly' : '');
+}
+function applyCamHash(h) {
+  if (!h) return false;
+  const q = {};
+  h.replace(/^#/, '').split('&').forEach((kv) => {
+    const i = kv.indexOf('=');
+    if (i > 0) q[kv.slice(0, i)] = kv.slice(i + 1);
+  });
+  let ok = false;
+  if (q.p) {
+    const p = q.p.split(',').map(Number);
+    if (p.length === 3 && p.every((v) => isFinite(v))) { camera.position.set(p[0], p[1], p[2]); ok = true; }
+  }
+  if (q.t) {
+    const t = q.t.split(',').map(Number);
+    if (t.length === 3 && t.every((v) => isFinite(v))) { controls.target.set(t[0], t[1], t[2]); ok = true; }
+  }
+  if (q.h) { const h = parseFloat(q.h); if (isFinite(h)) { TIME.targetH = h; applyHour(h); ok = true; } }
+  if (q.m === 'atlas') { if (!atlas.on) toggleAtlas(); atlas.k = 1; }
+  if (q.m === 'chase') { if (!chase.on) toggleChase(); }
+  controls.update();
+  return ok;
+}
+let _hashT = 0, _hashLast = '';
+
 /* ------------------------------------------------------------------ toggles */
 function toggleBloom() {
   state.bloomOn = !state.bloomOn;
@@ -4341,10 +5164,19 @@ function toggleBloom() {
 }
 function toggleTime() {
   state.evening = !state.evening;
-  TIME.target = state.evening ? 1 : 0;
+  TIME.targetH = state.evening ? 20.4 : 9.4;
   hud.btnTime.textContent = state.evening ? 'Daytime' : 'Evening';
   hud.btnTime.classList.toggle('on', state.evening);
 }
+ui.onTime = (h) => {
+  if (!hud.clock) return;
+  const hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
+  hud.clock.textContent = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+  if (!state.dragging) hud.hour.value = h.toFixed(2);
+  const p = h < 5.2 ? 'night' : h < 7.2 ? 'dawn' : h < 11 ? 'morning' : h < 14.5 ? 'midday'
+    : h < 17.4 ? 'afternoon' : h < 18.9 ? 'golden hour' : h < 20.2 ? 'dusk' : 'night';
+  hud.phase.textContent = p;
+};
 function toggleLabels() {
   state.labels = !state.labels;
   hud.btnLabels.classList.toggle('on', state.labels);
@@ -4357,6 +5189,77 @@ hud.btnAnim.onclick = () => {
   hud.btnAnim.classList.toggle('on', state.live);
 };
 hud.btnTime.onclick = toggleTime;
+function toggleAtlas() {
+  atlas.on = !atlas.on;
+  hud.btnAtlas.classList.toggle('on', atlas.on);
+  if (atlas.on) {
+    atlas.saved = { p: camera.position.clone(), t: controls.target.clone() };
+    const t = controls.target;
+    camTween = {
+      p0: camera.position.clone(), p1: new THREE.Vector3(t.x, 760, t.z + 0.5),
+      t0: controls.target.clone(), t1: new THREE.Vector3(t.x, 0, t.z),
+      t: 0, dur: 1.7,
+    };
+    atlas.target = 1;
+    if (!state.labels) toggleLabels();
+  } else {
+    if (atlas.saved) {
+      camTween = {
+        p0: camera.position.clone(), p1: atlas.saved.p.clone(),
+        t0: controls.target.clone(), t1: atlas.saved.t.clone(), t: 0, dur: 1.5,
+      };
+    }
+    atlas.target = 0;
+  }
+}
+function toggleChase() {
+  chase.on = !chase.on;
+  hud.btnChase.classList.toggle('on', chase.on);
+  if (chase.on) {
+    setFly(false);
+    if (atlas.on) toggleAtlas();
+    /* start on the busiest vehicle we can find */
+    let best = 0, bs = -1;
+    for (let i = 0; i < traffic.veh.length; i++) {
+      const e = traffic.veh[i].e;
+      const s2 = e.cls <= 1 ? 3 : e.cls === 2 ? 2 : 0;
+      if (s2 + Math.random() * 0.4 > bs) { bs = s2; best = i; }
+    }
+    chase.idx = best;
+  }
+}
+function toggleSound() {
+  if (AUDIO.on) audioStop(); else audioStart();
+  hud.btnSound.classList.toggle('on', AUDIO.on);
+}
+function doPostcard() {
+  if (hud.btnCard) hud.btnCard.classList.add('on');
+  setTimeout(() => {
+    prepareCardImage(2).then(() => {
+      savePostcard(2);
+      if (hud.btnCard) setTimeout(() => hud.btnCard.classList.remove('on'), 900);
+    });
+  }, 30);
+}
+hud.btnAtlas.onclick = toggleAtlas;
+hud.btnChase.onclick = toggleChase;
+hud.btnSound.onclick = toggleSound;
+hud.btnCard.onclick = doPostcard;
+hud.btnPlay.onclick = () => {
+  TIME.playing = !TIME.playing;
+  hud.btnPlay.classList.toggle('on', TIME.playing);
+  hud.btnPlay.textContent = TIME.playing ? '❚❚' : '▶';
+};
+hud.hour.oninput = () => {
+  state.dragging = true;
+  TIME.playing = false;
+  hud.btnPlay.classList.remove('on');
+  hud.btnPlay.textContent = '▶';
+  const h = parseFloat(hud.hour.value);
+  TIME.targetH = h;
+  applyHour(h);
+};
+hud.hour.onchange = () => { state.dragging = false; };
 hud.btnLabels.onclick = toggleLabels;
 document.querySelectorAll('.pbtn').forEach((b) => {
   b.onclick = () => { setFly(false); goPreset(+b.dataset.p); };
@@ -4406,6 +5309,7 @@ function buildLabels() {
   hud.labels.style.display = 'none';
 }
 const _v = new THREE.Vector3();
+const _chaseV = new THREE.Vector3();
 const placed = [];
 function updateLabels() {
   if (!state.labels) return;
@@ -4418,7 +5322,7 @@ function updateLabels() {
     const sx = (_v.x * 0.5 + 0.5) * w, sy = (-_v.y * 0.5 + 0.5) * h;
     if (on) {
       /* simple label collision culling: the anchor set is priority-ordered */
-      const bw = (L.el.textContent.length * 5.4) / 2 + 6, bh = 18;
+      const bw = (L.el.textContent.length * 6.6) / 2 + 8, bh = 15;
       for (let p = 0; p < placed.length; p++) {
         const q = placed[p];
         if (Math.abs(sx - q[0]) < bw + q[2] && Math.abs(sy - q[1]) < bh + q[3]) { on = false; break; }
@@ -4485,6 +5389,7 @@ function boot() {
   if (!kannadaOK()) document.body.classList.add('nokn');
 
   buildTerrain();
+  buildWaterMask();
   buildRoads();
   buildCity();
   buildGreen();
@@ -4494,21 +5399,25 @@ function boot() {
   billboards();
   metroWorks();
   buildTraffic();
+  buildSignals();
   buildPeds();
   lakeLife();
 
   const litMesh = vb.build(litMat, { cast: true, receive: true });
-  const glowMesh = vg.build(glowMat, { cast: false, receive: false });
+  const glowMesh = vg.build(glowMat, { cast: false, receive: false, fade: true });
   const waterMesh = vw.build(waterMat, { cast: false, receive: true });
   if (waterMesh) { scene.add(waterMesh); vw.mesh = waterMesh; }
   if (litMesh) { scene.add(litMesh); vb.mesh = litMesh; }
   if (glowMesh) { scene.add(glowMesh); vg.mesh = glowMesh; vg.mesh.visible = false; }
+  buildLightSpill();
+  scene.traverse((o) => { if (o.isInstancedMesh && o !== waterMesh) FLAT.push(o); });
 
   dataPresets();
   setupComposer();
   buildLabels();
   goPreset(0, true);
-  applyTime(0);
+  applyHour(9.4);
+  if (location.hash && location.hash.length > 3) { camTween = null; applyCamHash(location.hash); }
   updateCompass();
 
   const tris = (vb.n + vg.n + vw.n) * 12;
@@ -4528,6 +5437,7 @@ function boot() {
     pos: () => camera.position.toArray().map((v) => +v.toFixed(1)),
     tgt: () => controls.target.toArray().map((v) => +v.toFixed(1)),
     stats: () => ({
+      boot: +(bootT / 1000).toFixed(2),
       lit: vb.n, glow: vg.n, water: vw.n, calls: renderer.info.render.calls,
       tris: renderer.info.render.triangles,
       vehicles: traffic.veh.length, peds: peds.list.length,
@@ -4539,7 +5449,42 @@ function boot() {
       trees: GREEN.trees, palms: GREEN.palms, tanks: buildingStats.tanks,
       glowBands: buildingStats.glow, tall: buildingStats.tall,
     }),
-    setTime: (t) => { TIME.t = t; TIME.target = t; applyTime(t); state.evening = t > 0.5; },
+    setTime: (v) => { const h = lerp(9.4, 20.6, clamp(v, 0, 1)); TIME.targetH = h; applyHour(h); state.evening = v > 0.5; },
+    /* ---- inspection hooks used by the test suite ---- */
+    timeState: () => ({
+      h: +TIME.h.toFixed(2), el: +TIME.el.toFixed(1), dusk: +TIME.dusk.toFixed(3),
+      moon: +TIME.night.toFixed(3), sunI: +sun.intensity.toFixed(3),
+      glowOn: +(vg.mesh && vg.mesh.visible).toString().replace('true', '1').replace('false', '0'),
+      uDusk: +NIGHT.dusk.value.toFixed(3), level: +NIGHT.level.value.toFixed(3),
+      spillOpacity: spill.mat ? +spill.mat.opacity.toFixed(3) : -1,
+      cloud: +skyU.uCloud.value.toFixed(2), bloom: bloomPass ? +bloomPass.strength.toFixed(2) : -1,
+      skyTop: '#' + skyU.cTop.value.getHexString(),
+    }),
+    step: (sec) => {
+      const n = Math.max(1, Math.round(sec / 0.05));
+      for (let i = 0; i < n; i++) {
+        updateTraffic(0.05); updatePeds(0.05); updateLightSpill(0.05); updateView(0.05);
+        for (let a = 0; a < anim.length; a++) anim[a](performance.now() / 1000, 0.05);
+      }
+      return n;
+    },
+    signals: () => traffic.signals.length,
+    vehicles: () => traffic.veh.map((v) => ({
+      x: +(v.wx || 0).toFixed(1), z: +(v.wz || 0).toFixed(1),
+      spd: +(v.spd || 0).toFixed(2), cls: v.e.cls, type: v.type,
+      queued: (v.spd || 0) < 0.35,
+    })),
+    spill: () => ({ cap: spill.cap, static_n: spill.nStatic, dyn: spill.nDyn, opacity: spill.mat ? spill.mat.opacity : -1 }),
+    setAtlas: (on) => { if (on !== atlas.on) toggleAtlas(); return atlas.on; },
+    atlasK: () => +atlas.k.toFixed(3),
+    setChase: (on) => { if (on !== chase.on) toggleChase(); return chase.on; },
+    chaseIdx: () => chase.idx,
+    audio: { start: audioStart, stop: audioStop, state: audioState },
+    postcard: (scale) => prepareCardImage(scale || 1).then(() => savePostcard(scale || 1)),
+    hash: () => camHash(),
+    applyHash: (h) => applyCamHash(h),
+    setHour: (h) => { applyHour(h); TIME.targetH = TIME.h; },
+    hour: () => TIME.h,
     preset: (i) => { setFly(false); goPreset(i, true); },
     labels: (on) => { state.labels = on; toggleLabels(); toggleLabels(); },
     camera: camera, scene: scene, THREE: THREE,
@@ -4547,12 +5492,49 @@ function boot() {
   };
   window.__vb = info;
   window.__vk = info;                     /* kept for older harnesses */
+  bootT = performance.now();
   ready = true;
 }
 let ready = false;
 
 /* ------------------------------------------------------------------- loop - */
-let last = 0, fpsT = 0, fpsN = 0, lastReal = 0, shadowTick = 0;
+let last = 0, fpsT = 0, fpsN = 0, lastReal = 0, shadowTick = 0, bootT = 0;
+function updateView(raw) {
+  if (camTween) {
+    camTween.t += raw / camTween.dur;
+    const k = clamp(camTween.t, 0, 1);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    camera.position.lerpVectors(camTween.p0, camTween.p1, e);
+    controls.target.lerpVectors(camTween.t0, camTween.t1, e);
+    if (k >= 1) camTween = null;
+  }
+  /* --- atlas: the model squashes to a flat map while the camera goes top-down --- */
+  if (Math.abs(atlas.k - atlas.target) > 0.0005) {
+    atlas.k += (atlas.target - atlas.k) * clamp(raw * 2.6, 0, 1);
+    if (Math.abs(atlas.k - atlas.target) < 0.0006) atlas.k = atlas.target;
+    const sy = 1 - 0.93 * atlas.k;
+    for (let i = 0; i < FLAT.length; i++) FLAT[i].scale.y = sy;
+    if (bloomPass) bloomPass.strength = lerp(0.26, 0.10, atlas.k);
+  }
+  /* --- chase: ride along with one vehicle --- */
+  if (chase.on && traffic.veh.length) {
+    const v = traffic.veh[chase.idx % traffic.veh.length];
+    if (v.wx !== undefined) {
+      const c = Math.cos(v.ang || 0), s2 = Math.sin(v.ang || 0);
+      const gx = v.wx - c * 8.4, gz = v.wz - s2 * 8.4;
+      /* lift the eye if the spot behind the vehicle is inside a block */
+      let gy = (GROUND_H[2] || 0) + 5.0;
+      if (typeof freeAt === 'function') {
+        if (!freeAt(gx, gz)) gy += 6.0;
+        if (!freeAt(v.wx, v.wz)) gy += 3.0;
+      }
+      camera.position.lerp(_chaseV.set(gx, gy, gz), clamp(raw * 5, 0, 1));
+      camera.lookAt(v.wx + c * 16, (GROUND_H[2] || 0) + 0.9, v.wz + s2 * 16);
+      controls.target.set(v.wx + c * 16, 0, v.wz + s2 * 16);
+    }
+  }
+}
+
 function animate(now) {
   requestAnimationFrame(animate);
   const realDt = lastReal ? Math.min(2, (now - lastReal) / 1000) : 0.016;
@@ -4562,21 +5544,20 @@ function animate(now) {
   const dt = state.frozen ? 0 : raw;
 
   /* time-of-day transition */
-  if (Math.abs(TIME.t - TIME.target) > 0.002) {
-    applyTime(TIME.t + (TIME.target - TIME.t) * clamp(raw * 3.2, 0, 1));
-  } else if (TIME.t !== TIME.target) applyTime(TIME.target);
-
-  if (camTween) {
-    camTween.t += raw / camTween.dur;
-    const k = clamp(camTween.t, 0, 1);
-    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-    camera.position.lerpVectors(camTween.p0, camTween.p1, e);
-    controls.target.lerpVectors(camTween.t0, camTween.t1, e);
-    if (k >= 1) camTween = null;
+  if (TIME.playing) {
+    TIME.targetH = (TIME.targetH + TIME.speed * raw) % 24;
+    TIME.h = TIME.targetH;
+    applyHour(TIME.h);
+  } else if (Math.abs(TIME.targetH - TIME.h) > 0.002) {
+    let dh = TIME.targetH - TIME.h;
+    if (dh > 12) dh -= 24; else if (dh < -12) dh += 24;
+    applyHour(TIME.h + dh * clamp(raw * 3.0, 0, 1));
   }
 
   updateFly(raw);
-  if (!fly.active) controls.update();
+  if (!fly.active && !chase.on) controls.update();
+
+  updateView(raw);
 
   /* the shadow frustum follows what we are looking at, and widens with it */
   const focus = fly.active ? camera.position : controls.target;
@@ -4590,8 +5571,7 @@ function animate(now) {
   }
   sun.shadow.autoUpdate = false;
   sun.target.position.set(focus.x, 0, focus.z);
-  sun.position.copy(sun.target.position).addScaledVector(
-    TIME.day.sunDir.clone().lerp(TIME.eve.sunDir, TIME.t), 600);
+  sun.position.copy(sun.target.position).addScaledVector(TIME.sunVec, 600);
   sun.target.updateMatrixWorld();
   /* the shadow map is expensive: refresh it every few frames, not every frame */
   if (spanMoved || ++shadowTick >= 8) { sun.shadow.needsUpdate = true; shadowTick = 0; }
@@ -4599,6 +5579,8 @@ function animate(now) {
   if (state.live && ready) {
     updateTraffic(dt);
     updatePeds(dt);
+    updateLightSpill(dt);
+    audioTick(raw);
     for (let i = 0; i < anim.length; i++) anim[i](performance.now() / 1000, dt);
   }
   waterU.uTime.value = now / 1000;
@@ -4609,10 +5591,11 @@ function animate(now) {
   if (composer && state.bloomOn) composer.render();
   else renderer.render(scene, camera);
 
-  hueFps(raw);
-}
-
-function hueFps(raw) {
+  if (realDt > 0 && now - _hashT > 700) {
+    _hashT = now;
+    const hh = camHash();
+    if (hh !== _hashLast) { _hashLast = hh; try { history.replaceState(null, '', hh); } catch (e) {} }
+  }
   fpsT += realDt; fpsN++;
   if (fpsT > 0.5) {
     const f = Math.round(fpsN / fpsT);
